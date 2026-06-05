@@ -9,3 +9,6 @@ build/
 .ruff_cache/
 .mypy_cache/
 *.egg
+
+# Real-world test cases contain actual research data — not committed
+tests/real_world/

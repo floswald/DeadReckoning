@@ -35,27 +35,74 @@ _INLINE_TABULAR_RE = re.compile(
 _HAS_TABULAR_RE = re.compile(r"\\begin\{tabular\}")
 _HAS_INPUT_RE = re.compile(r"\\input\s*\{")
 
-# Inline statistics in body text: coefficients like 0.047*** or (0.012)
+# Inline statistics: decimal numbers that look like regression results.
+# Only flag when followed by significance stars or a standard error in parens —
+# bare decimals (LaTeX option args, coordinates, scale factors) are too common.
 _INLINE_STAT_RE = re.compile(
-    r"(?<![\\{])"             # not preceded by \ or {
-    r"-?\d+\.\d{2,4}"        # decimal number
-    r"(?:\s*\*{1,3})?"       # optional significance stars
-    r"(?:\s*\([0-9.]+\))?",  # optional standard error in parens
+    r"(?<![\\{\[=,])"           # not inside a LaTeX command arg or option
+    r"-?\d+\.\d{2,4}"           # decimal number
+    r"(?:"
+    r"\s*\*{1,3}"               # significance stars (required for bare number)
+    r"|"
+    r"\s*\([0-9.]+\)"           # OR standard error in parens (required)
+    r")",
 )
 
+# \newcommand{\macroname}{value} — capture path-like macro definitions
+_NEWCOMMAND_RE = re.compile(
+    r"\\newcommand\s*\{\\([A-Za-z]+)\}\s*\{([^}]+)\}"
+)
 
-def _extract_exhibits_from_tex(tex_path: Path) -> list[Path]:
+# Commented-out lines — strip before macro/exhibit extraction
+_COMMENT_LINE_RE = re.compile(r"(?m)^[^\S\n]*%.*$")
+_INLINE_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
+
+
+def _collect_tex_macros(tex_files: list[Path]) -> dict[str, str]:
+    """
+    Scan all tex files for \\newcommand{\\name}{value} definitions where
+    the value looks like a path (contains / or ..). Returns {name: value}.
+    """
+    macros: dict[str, str] = {}
+    for tex in tex_files:
+        try:
+            text = tex.read_text(errors="replace")
+        except OSError:
+            continue
+        for name, value in _NEWCOMMAND_RE.findall(text):
+            value = value.strip()
+            # Only keep macros that look like path fragments
+            if "/" in value or value.startswith("..") or value.startswith("."):
+                macros[name] = value
+    return macros
+
+
+def _expand_macros(ref: str, macros: dict[str, str]) -> str:
+    """Replace \\macroname occurrences in ref with their defined values."""
+    for name, value in macros.items():
+        ref = ref.replace(f"\\{name}", value)
+    return ref
+
+
+def _extract_exhibits_from_tex(
+    tex_path: Path, macros: dict[str, str] | None = None
+) -> list[Path]:
     """Return all external file paths referenced via include/input/includegraphics."""
     text = tex_path.read_text(errors="replace")
+    # Strip comments so commented-out \includegraphics lines are ignored
+    text = _INLINE_COMMENT_RE.sub("", text)
     raw = _TEX_INCLUDE_RE.findall(text)
     exhibits: list[Path] = []
     tex_dir = tex_path.parent
     for ref in raw:
         ref = ref.strip()
+        if macros:
+            ref = _expand_macros(ref, macros)
+        # Skip refs that still contain unexpanded macros (start with \)
+        if ref.startswith("\\"):
+            continue
         p = Path(ref)
-        # If no suffix and not obviously a .tex, it could be a figure without extension.
-        # Keep as-is; existence check handles it.
-        exhibits.append(tex_dir / p if not p.is_absolute() else p)
+        exhibits.append((tex_dir / p).resolve() if not p.is_absolute() else p.resolve())
     return exhibits
 
 
@@ -246,40 +293,60 @@ def build_graph(project_root: Path) -> DependencyGraph:
     # 1. Find .tex files
     tex_files = sorted(project_root.rglob("*.tex"))
 
-    # 2. Find all scripts
+    # 2. Collect LaTeX path macros (\newcommand{\dataplots}{../output/data/plots})
+    #    before extracting exhibits so macro-based paths can be expanded.
+    macros = _collect_tex_macros(tex_files)
+
+    # 3. Find all scripts
     scripts: list[Path] = []
     for ext in _SCRIPT_EXTENSIONS:
         scripts.extend(project_root.rglob(f"*{ext}"))
     scripts = sorted(set(scripts))
 
-    # 3. Extract all write calls from scripts
+    # 4. Extract all write calls from scripts
     all_writes: list[ScriptWritesExhibit] = []
     for script in scripts:
         all_writes.extend(_extract_write_calls(script))
 
-    # 4. Extract exhibits from .tex files
+    # 5. Extract exhibits from .tex files (returns resolved absolute paths)
     raw_exhibit_paths: list[Path] = []
     tex_gaps: list[Gap] = []
     for tex in tex_files:
-        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex))
+        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex, macros))
+
+    # Collect the set of resolved output tex files so we don't scan them
+    # for inline content — they're generated tables, not prose.
+    # Two complementary heuristics:
+    #   1. Any tex file explicitly referenced as an exhibit.
+    #   2. Any tex file that lives inside a directory named "output" or "tables"
+    #      at any depth — these are generated table fragments, not manuscript prose.
+    output_tex_abs: set[Path] = set(raw_exhibit_paths)
+
+    def _is_output_tex(p: Path) -> bool:
+        if p.resolve() in output_tex_abs:
+            return True
+        parts = {part.lower() for part in p.parts}
+        return bool(parts & {"output", "outputs"})
+
+    for tex in tex_files:
+        if _is_output_tex(tex):
+            continue
         tex_gaps.extend(_find_inline_tables(tex))
         tex_gaps.extend(_find_inline_statistics(tex))
 
-    # Deduplicate exhibits
+    # Deduplicate (already resolved absolute paths)
     seen_exhibits: set[Path] = set()
     exhibit_paths: list[Path] = []
     for p in raw_exhibit_paths:
-        resolved = p.resolve() if p.is_absolute() else (project_root / p).resolve()
-        if resolved not in seen_exhibits:
-            seen_exhibits.add(resolved)
+        if p not in seen_exhibits:
+            seen_exhibits.add(p)
             exhibit_paths.append(p)
 
-    # 5. Match exhibits to write calls
+    # 6. Match exhibits to write calls
     exhibits: list[Exhibit] = []
     gaps: list[Gap] = []
 
-    for tex_path in exhibit_paths:
-        abs_tex = (project_root / tex_path).resolve()
+    for abs_tex in exhibit_paths:
         exists = abs_tex.exists()
 
         # Find a write call whose written_path resolves to the same file.
@@ -304,9 +371,15 @@ def build_graph(project_root: Path) -> DependencyGraph:
                     path_mismatch = True
                     break
 
+        # Store exhibit path relative to project root for readability
+        try:
+            display_path = abs_tex.relative_to(project_root)
+        except ValueError:
+            display_path = abs_tex  # outside project root (e.g. macro pointing elsewhere)
+
         exhibits.append(
             Exhibit(
-                tex_path=tex_path,
+                tex_path=display_path,
                 exists_on_disk=exists,
                 source=source,
                 path_mismatch=path_mismatch,
@@ -321,7 +394,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
                         if not exists
                         else GapKind.exhibit_no_source_script
                     ),
-                    exhibit=tex_path,
+                    exhibit=display_path,
                     candidate_scripts=_candidate_scripts(abs_tex, scripts),
                 )
             )
@@ -329,17 +402,17 @@ def build_graph(project_root: Path) -> DependencyGraph:
             gaps.append(
                 Gap(
                     kind=GapKind.script_writes_wrong_path,
-                    exhibit=tex_path,
+                    exhibit=display_path,
                     note=(
                         f"{source.script.name} writes to {source.written_path} "
-                        f"but LaTeX expects {tex_path}"
+                        f"but LaTeX expects {display_path}"
                     ),
                 )
             )
 
     gaps.extend(tex_gaps)
 
-    # 6. Data files
+    # 7. Data files
     data_files: list[DataFile] = []
     seen_data: set[Path] = set()
     for script in scripts:
