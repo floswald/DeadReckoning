@@ -219,6 +219,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
          f"{len(result.scan.external_paths)} ext path(s)" if result.scan else "")
     _row("RESOLVE",        result.resolve is not None,
          f"{result.resolve.rewrite_count} rewrite(s)" if result.resolve else "")
+    _row("FIX",            result.fix_loop is not None and result.fix_loop.converged,
+         f"{len(result.fix_loop.fixes_applied)} fix(es)" if result.fix_loop else "skipped")
     _row("RUN (native)",   result.native_run.success if result.native_run else None,
          f"rc={result.native_run.returncode}" if result.native_run else "skipped")
     _row("VALIDATE (native)", result.native_validation is not None and result.native_validation.success

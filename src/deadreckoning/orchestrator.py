@@ -15,6 +15,7 @@ from pathlib import Path
 from .capture import capture_env
 from .confidentiality import check_restricted
 from .docker import BuildResult, ContainerValidationResult, build_image, generate_dockerfile, run_in_container
+from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop
 from .graph import build_graph
 from .models import DependencyGraph, EnvSpec, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
@@ -31,6 +32,7 @@ class PipelineResult:
     env_spec: EnvSpec | None = None
     scan: ScanResult | None = None
     resolve: ResolveResult | None = None
+    fix_loop: FixLoopResult | None = None
     native_run: RunResult | None = None
     native_validation: ValidationResult | None = None
     dockerfile: str | None = None
@@ -114,7 +116,12 @@ def run_pipeline(
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
 
-    # Step 6+7: native run + validate
+    # Step 6: FIX loop — deterministic fixes (e.g. wrong output paths)
+    fix_result, result.graph = run_fix_loop(working_copy, result.graph, result.env_spec)
+    result.fix_loop = fix_result
+    append_fix_report(working_copy, fix_result)
+
+    # Step 7+8: native run + validate
     result.native_run = run_natively(working_copy, master_script=master_script)
     if not result.native_run.success:
         result.error = f"Native run failed (rc={result.native_run.returncode})"
