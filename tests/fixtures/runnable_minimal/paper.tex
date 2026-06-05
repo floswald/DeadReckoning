@@ -1,0 +1,27 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\begin{document}
+
+\section{Results}
+
+Figure~\ref{fig:mpg} shows fuel economy versus weight.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/fig1.pdf}
+  \caption{MPG vs Weight (mtcars)}
+  \label{fig:mpg}
+\end{figure}
+
+Table~\ref{tab:summary} reports summary statistics.
+
+\begin{table}[ht]
+  \centering
+  \input{tables/summary.tex}
+  \caption{Summary statistics}
+  \label{tab:summary}
+\end{table}
+
+\end{document}
