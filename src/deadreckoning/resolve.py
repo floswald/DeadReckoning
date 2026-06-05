@@ -112,7 +112,7 @@ def resolve_paths(
         target = _target_relative_path(raw)
         scripts_affected = sorted({str(ep.script) for ep in occurrences})
 
-        # Apply rewrite to each affected script
+        # Apply rewrite to each affected script (language-agnostic)
         for script_rel in scripts_affected:
             script_abs = working_copy / script_rel
             if not script_abs.exists():

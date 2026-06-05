@@ -108,6 +108,7 @@ class PinMethod(str, Enum):
     conda_export = "conda_export"
     pip_freeze = "pip_freeze"
     manifest_toml = "manifest_toml"     # Julia
+    pyproject = "pyproject"             # Python pyproject.toml
     inferred_from_date = "inferred_from_date"
     unknown = "unknown"
 

@@ -20,7 +20,7 @@ from .graph import build_graph
 from .models import DependencyGraph, EnvSpec, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
-from .scan import ScanResult, scan_r_scripts
+from .scan import ScanResult, scan_scripts
 
 
 @dataclass
@@ -110,8 +110,8 @@ def run_pipeline(
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)
 
-    # Step 4: scan R scripts
-    result.scan = scan_r_scripts(working_copy)
+    # Step 4: scan all scripts (multi-language)
+    result.scan = scan_scripts(working_copy)
 
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
