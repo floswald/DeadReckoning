@@ -309,20 +309,61 @@ def scan_python_scripts(project_root: Path) -> ScanResult:
 
 
 # ---------------------------------------------------------------------------
+# Stata scanner
+# ---------------------------------------------------------------------------
+
+
+def _scan_stata_internals(
+    project_root: Path,
+) -> tuple[set[str], list[ExternalPath]]:
+    """Extract packages (from ssc/net install) and external paths from .do files."""
+    do_files = list(project_root.rglob("*.do"))
+    packages: set[str] = set()
+    external_paths: list[ExternalPath] = []
+
+    _SSC_RE = re.compile(r"^\s*ssc\s+install\s+(\S+)", re.MULTILINE | re.IGNORECASE)
+    _NET_RE = re.compile(r"^\s*net\s+install\s+(\S+)", re.MULTILINE | re.IGNORECASE)
+
+    for script in sorted(do_files):
+        try:
+            text = script.read_text(errors="replace")
+        except OSError:
+            continue
+        external_paths.extend(_extract_external_paths(text, script, project_root))
+        for m in _SSC_RE.finditer(text):
+            packages.add(m.group(1).strip(",").strip('"').strip("'"))
+        for m in _NET_RE.finditer(text):
+            packages.add(m.group(1).strip(",").strip('"').strip("'"))
+
+    return packages, external_paths
+
+
+def scan_stata_scripts(project_root: Path) -> ScanResult:
+    """Scan all Stata .do scripts."""
+    pkgs, paths = _scan_stata_internals(project_root)
+    return ScanResult(
+        used_packages=sorted(pkgs),
+        external_paths=paths,
+        secret_files=_scan_secrets(project_root),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Combined multi-language scanner
 # ---------------------------------------------------------------------------
 
 
 def scan_scripts(project_root: Path) -> ScanResult:
     """
-    Scan all scripts across supported languages (R, Python).
+    Scan all scripts across supported languages (R, Python, Stata).
     Returns a single merged ScanResult. Secret scan runs once.
     """
     r_pkgs, r_paths, r_dl = _scan_r_internals(project_root)
     py_pkgs, py_paths, py_dl = _scan_python_internals(project_root)
+    stata_pkgs, stata_paths = _scan_stata_internals(project_root)
 
-    all_packages = sorted((r_pkgs | py_pkgs))
-    all_paths = r_paths + py_paths
+    all_packages = sorted(r_pkgs | py_pkgs | stata_pkgs)
+    all_paths = r_paths + py_paths + stata_paths
     all_downloads = r_dl + py_dl
 
     return ScanResult(

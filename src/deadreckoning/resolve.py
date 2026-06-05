@@ -36,6 +36,7 @@ class ResolveResult(BaseModel):
     data_manifest: list[DataManifestEntry] = Field(default_factory=list)
     report_path: Path | None = None
     secrets_excluded: list[str] = Field(default_factory=list)
+    config_do_written: bool = False
 
     @property
     def rewrite_count(self) -> int:
@@ -149,6 +150,16 @@ def resolve_paths(
             target_path.unlink()
             excluded.append(str(sf.path))
 
+    # For Stata projects: generate code/_config.do (ado install + sysdir redirect)
+    config_do_written = False
+    if list(working_copy.rglob("*.do")):
+        from .scan import _scan_stata_internals
+        from .stata import write_config_do
+        stata_specific_pkgs, _ = _scan_stata_internals(working_copy)
+        if stata_specific_pkgs:
+            write_config_do(working_copy, sorted(stata_specific_pkgs))
+            config_do_written = True
+
     # Write data-manifest.csv
     _write_data_manifest(working_copy, manifest_entries)
 
@@ -168,6 +179,7 @@ def resolve_paths(
         data_manifest=manifest_entries,
         report_path=report_path,
         secrets_excluded=excluded,
+        config_do_written=config_do_written,
     )
 
 
