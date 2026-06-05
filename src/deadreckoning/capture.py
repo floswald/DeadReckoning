@@ -13,8 +13,11 @@ def capture_env(project_root: Path) -> EnvSpec:
     """
     Detect and parse the environment spec from a project directory.
 
-    Checks for (in order): renv.lock, requirements.txt, environment.yml.
-    Returns a low-confidence unknown spec if nothing is found.
+    Priority order:
+      renv.lock        → R (high confidence)
+      requirements.txt → Python (medium confidence)
+      *.do files exist → Stata (low confidence — no lockfile standard)
+      fallback         → unknown
     """
     renv_lock = project_root / "renv.lock"
     if renv_lock.exists():
@@ -23,6 +26,11 @@ def capture_env(project_root: Path) -> EnvSpec:
     requirements = project_root / "requirements.txt"
     if requirements.exists():
         return _from_requirements_txt(requirements)
+
+    do_files = list(project_root.rglob("*.do"))
+    if do_files:
+        from .stata import capture_stata_env
+        return capture_stata_env(project_root)
 
     return EnvSpec(language="unknown", confidence=0.0)
 

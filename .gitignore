@@ -10,5 +10,8 @@ build/
 .mypy_cache/
 *.egg
 
+# Stata batch run logs (generated at runtime)
+*.log
+
 # Real-world test cases contain actual research data — not committed
 tests/real_world/

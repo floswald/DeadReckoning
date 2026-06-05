@@ -31,7 +31,22 @@ class ValidationResult:
 
 
 def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunResult:
-    """Execute master script with cwd=project_root. Returns stdout/stderr/returncode."""
+    """
+    Dispatch to the right runner based on script extension.
+
+    .R / .r  → Rscript
+    .do      → Stata (via stata.run_stata, wrapped into RunResult)
+    """
+    ext = Path(master_script).suffix.lower()
+    if ext in (".r",):
+        return _run_r(project_root, master_script)
+    if ext == ".do":
+        return _run_stata(project_root, master_script)
+    # fallback: treat as R
+    return _run_r(project_root, master_script)
+
+
+def _run_r(project_root: Path, master_script: str) -> RunResult:
     result = subprocess.run(
         ["Rscript", master_script],
         cwd=project_root,
@@ -42,6 +57,29 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
         returncode=result.returncode,
         stdout=result.stdout,
         stderr=result.stderr,
+    )
+
+
+def _run_stata(project_root: Path, master_script: str) -> RunResult:
+    from .stata import detect_stata, run_stata
+    install = detect_stata()
+    if not install.found:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=f"Stata not found.\n{install.advice or ''}",
+        )
+    if not install.on_path:
+        # still runnable via resolved binary path
+        pass
+    stata_result = run_stata(project_root, master_script, binary=install.binary)
+    stderr = stata_result.stderr
+    if stata_result.log_has_error:
+        stderr += f"\nStata error r({stata_result.error_code}) in log: {stata_result.log_path}"
+    return RunResult(
+        returncode=0 if stata_result.success else 1,
+        stdout=stata_result.stdout,
+        stderr=stderr,
     )
 
 

@@ -47,9 +47,17 @@ class PipelineResult:
         )
 
 
+def _detect_master_script(project_root: Path) -> str:
+    """Guess master script if not supplied: prefer run.R, then master.do."""
+    for candidate in ("code/run.R", "run.R", "code/master.do", "master.do"):
+        if (project_root / candidate).exists():
+            return candidate
+    return "code/run.R"
+
+
 def run_pipeline(
     project_root: Path,
-    master_script: str = "code/run.R",
+    master_script: str | None = None,
     docker_tag: str | None = None,
     skip_docker: bool = False,
 ) -> PipelineResult:
@@ -66,6 +74,9 @@ def run_pipeline(
     7. BUILD   — docker build
     8. VALIDATE (container) — all exhibits regenerate inside container
     """
+    if master_script is None:
+        master_script = _detect_master_script(project_root)
+
     # Always work on a copy — original is never touched
     tmpdir = Path(tempfile.mkdtemp(prefix="dr_"))
     working_copy = tmpdir / project_root.name
