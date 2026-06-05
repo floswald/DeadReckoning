@@ -17,7 +17,9 @@ from .confidentiality import check_restricted
 from .docker import BuildResult, ContainerValidationResult, build_image, generate_dockerfile, run_in_container
 from .graph import build_graph
 from .models import DependencyGraph, EnvSpec, RestrictedStatus
+from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
+from .scan import ScanResult, scan_r_scripts
 
 
 @dataclass
@@ -27,6 +29,8 @@ class PipelineResult:
     restricted: RestrictedStatus
     graph: DependencyGraph | None = None
     env_spec: EnvSpec | None = None
+    scan: ScanResult | None = None
+    resolve: ResolveResult | None = None
     native_run: RunResult | None = None
     native_validation: ValidationResult | None = None
     dockerfile: str | None = None
@@ -65,14 +69,16 @@ def run_pipeline(
     Run the full DeadReckoning pipeline on a copy of project_root.
 
     Steps:
-    1. DETECT — confidentiality gate (abort on restricted data)
-    2. GRAPH   — build dependency graph
-    3. CAPTURE — parse env spec from lockfile
-    4. RUN     — execute master_script natively
-    5. VALIDATE (native) — all sourced exhibits present
-    6. GENERATE — produce Dockerfile
-    7. BUILD   — docker build
-    8. VALIDATE (container) — all exhibits regenerate inside container
+    1. DETECT   — confidentiality gate (abort on restricted data)
+    2. GRAPH    — build dependency graph
+    3. CAPTURE  — parse env spec from lockfile
+    4. SCAN     — extract packages, external paths, secrets
+    5. RESOLVE  — rewrite paths, generate data-manifest + AGENT_REPORT
+    6. RUN      — execute master_script natively
+    7. VALIDATE (native) — all sourced exhibits present
+    8. GENERATE — produce Dockerfile
+    9. BUILD    — docker build
+    10. VALIDATE (container) — all exhibits regenerate inside container
     """
     if master_script is None:
         master_script = _detect_master_script(project_root)
@@ -102,7 +108,13 @@ def run_pipeline(
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)
 
-    # Step 4+5: native run + validate
+    # Step 4: scan R scripts
+    result.scan = scan_r_scripts(working_copy)
+
+    # Step 5: resolve paths (mutates working copy only)
+    result.resolve = resolve_paths(working_copy, result.scan)
+
+    # Step 6+7: native run + validate
     result.native_run = run_natively(working_copy, master_script=master_script)
     if not result.native_run.success:
         result.error = f"Native run failed (rc={result.native_run.returncode})"
