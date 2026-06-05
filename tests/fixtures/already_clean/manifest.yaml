@@ -1,0 +1,17 @@
+fixture_name: already_clean
+
+gaps: []
+
+path_rewrites: []
+
+version_pins:
+  - language: R
+    method: lockfile
+    snapshot_date: "2023-09-01"
+
+is_restricted: false
+
+notes: >
+  Project is fully clean. renv.lock present with PPM snapshot date.
+  All exhibits traceable to scripts. No absolute paths. No inline tables.
+  Agent must confirm and not change anything.

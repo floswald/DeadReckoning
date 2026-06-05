@@ -1,0 +1,42 @@
+# Ground-truth manifest for r_no_lockfile fixture
+fixture_name: r_no_lockfile
+
+gaps:
+  - kind: exhibit_no_source_script
+    exhibit: figures/fig1.pdf
+    note: >
+      analysis.R writes fig1.pdf to working directory, not figures/fig1.pdf.
+      Detected as path_mismatch.
+
+  - kind: exhibit_missing_from_disk
+    exhibit: figures/fig3b.pdf
+    note: Referenced in paper.tex but no file exists and no script writes it.
+
+  - kind: inline_table
+    location: paper.tex
+    note: Table with tabular typed directly, no \input{}.
+
+  - kind: inline_statistic
+    location: paper.tex
+    note: "0.047*** (0.012) in body text."
+
+path_rewrites:
+  - original: /Users/jsmith/Dropbox/JPE_paper/data/lfs_2019.dta
+    rewritten: data/raw/lfs_2019.dta
+    scripts_affected: [code/analysis.R]
+
+  - original: /Users/jsmith/Dropbox/JPE_paper/data/model_results.rds
+    rewritten: data/raw/model_results.rds
+    scripts_affected: [code/tables.R]
+
+version_pins:
+  - language: R
+    method: inferred_from_date
+
+is_restricted: false
+
+notes: >
+  fig1.pdf exists on disk but was moved there manually.
+  analysis.R uses ggsave("fig1.pdf") without a path — writes to working dir.
+  fig3b.pdf is missing entirely — no source script.
+  old_cleaning_v3.R is an orphan (not called by anything, not in dependency chain).

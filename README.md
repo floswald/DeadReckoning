@@ -259,19 +259,39 @@ One confirmation from the author, then the copy runs. Everything after that happ
 ## 6. Agent steps
 
 ```
-DETECT → CAPTURE → SCAN → ASK → RESOLVE → GENERATE → BUILD → VALIDATE → (FIX ↻) → DELIVER
+DETECT → CAPTURE → SCAN → GRAPH → ASK → RESOLVE → (FIX ↻ native) → VALIDATE (native) → CLEAN → GENERATE → BUILD → VALIDATE (container) → (FIX ↻ Docker) → DELIVER
 ```
 
+The pipeline has two distinct phases separated by the native validation gate. **Everything up to and including VALIDATE (native) is about getting the replication package to work.** Docker does not appear until that is done. A broken pipeline wrapped in a Docker image is still a broken pipeline.
+
+### Phase 1: Understand the project
+
 1. **DETECT** — identify languages, master script (`master.do`, `run.R`, `main.jl`), existing lockfiles, OS and processor architecture of the host (especially Apple Silicon).
-2. **CAPTURE** — read the live software environment (Section 5.2). Runs before any questions are asked.
-3. **SCAN** — extract dependencies from code; find secrets, large data files, and absolute paths.
-4. **ASK** — ask the author only what the disk could not answer ("when did you last run this?", "do you have a Stata license?").
-5. **RESOLVE** — translate what was captured and what the author said into exact version specifications: a dated Posit Package Manager snapshot, a pinned Julia manifest, a conda export, a specific Stata version declaration.
-6. **GENERATE** — write the Dockerfile (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume + `.dockerignore` + the computational requirements README.
-7. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements. The image is intentionally small: operating system + language runtime + packages only.
-8. **VALIDATE** — two stages: (a) delete all outputs and run the master script *natively* on the author's machine first — this confirms the package works without Docker; (b) delete outputs again and run inside the container with the package folder attached — this confirms the Docker setup works. Both must pass. A run that finds pre-existing outputs and exits without doing anything is not a success. Measure and record wall-clock runtime.
-9. **FIX loop** — read the error, adjust version specifications or the Dockerfile, rebuild. This loop is the product; a tool that only generates files once is just a template generator.
-10. **DELIVER** — produce all output files plus a plain-language explanation of what was done and why. Runtime measured during validation is written into the README automatically.
+2. **CAPTURE** — read the live software environment (Section 5.2). Reconstruct installed package versions from the live session before asking the author anything.
+3. **SCAN** — extract all dependencies from code; find secrets, large data files, and absolute paths; locate every path to data not present inside the project directory.
+4. **GRAPH** — build the output dependency graph rooted at the LaTeX source: `paper.tex → exhibit files → scripts → intermediate data → raw data`. Every exhibit in the paper must trace back to a script. Gaps — an exhibit with no source script, a script with no data, numbers typed directly into the `.tex` — are flagged explicitly for resolution in the next phase. This step drives everything that follows; the agent does not proceed past it until the graph is as complete as the disk allows.
+
+### Phase 2: Repair the pipeline
+
+5. **ASK** — ask the author only what the disk could not answer: "when did you last run this?", "how was `fig3b.pdf` produced?", "do you have a Stata license?", "where is the raw LFS data?". Every question is grounded in something the GRAPH step could not resolve automatically. The author is never asked for information already found on disk.
+6. **RESOLVE** — translate what was captured and what the author confirmed into exact version specifications: a dated Posit Package Manager snapshot, a pinned Julia manifest, a conda export, a specific Stata version declaration. Rewrite all absolute paths to be relative to the project root. Add download steps for any public data accessed by URL.
+7. **FIX loop (native)** — delete all outputs and run the master script natively on the author's machine. Read the error; fix the pipeline — a missing package, a broken path, a script that writes to the wrong location, a wrong version pinned. Repeat until the native run completes without error and produces every exhibit the paper uses. **This loop is the core of the product.** The agent does not move to containerization until it passes.
+
+### Phase 3: Validate natively
+
+8. **VALIDATE (native)** — delete all outputs a final time and run the full master script natively. Every exhibit in the paper must be regenerated. A run that finds pre-existing outputs and exits without doing anything is not a success. Measure and record wall-clock runtime. This is the gate: the replication package is now a working deliverable independent of Docker.
+
+### Phase 4: Clean and containerize
+
+9. **CLEAN** — show the author all files not reached by the dependency graph (abandoned scripts, superseded data, figures cut from the draft) and offer three choices per group: delete, archive, or keep with a documented reason. See Section 7.6.
+10. **GENERATE** — write the Docker setup: `Dockerfile` (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume at run time + `.dockerignore`. Also write the computational requirements README (AEA format), with the runtime from step 8 inserted automatically.
+11. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements (default `linux/amd64` for Stata/MATLAB; see Section 7.7). The image is intentionally small: operating system + language runtime + packages, nothing else.
+12. **VALIDATE (container)** — delete all outputs and run the master script inside the container with the replication package folder attached as a volume. Must reproduce every exhibit, same as the native run. Measure and record container runtime separately. Both native and container runtimes go into the README.
+13. **FIX loop (Docker)** — if the container run fails, read the error; adjust the Dockerfile (a missing system library, a wrong base image tag, an architecture mismatch). Rebuild and rerun. The native pipeline is already fixed; these errors are environment packaging problems, not pipeline problems.
+
+### Phase 5: Deliver
+
+14. **DELIVER** — hand the author a complete replication package (Section 9): the cleaned project directory, the README, `data-manifest.csv`, `AGENT_REPORT.md`, and the Docker setup. The report states plainly what was recovered automatically, what the author confirmed, what couldn't be resolved, and what the runtime was. Every decision is explained in plain language so the author can respond to a reviewer who asks about it.
 
 ---
 

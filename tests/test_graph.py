@@ -1,0 +1,193 @@
+"""Unit tests for GRAPH step and confidentiality gate."""
+
+from __future__ import annotations
+
+import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from deadreckoning.confidentiality import check_restricted
+from deadreckoning.graph import build_graph
+from deadreckoning.models import GapKind
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def fixture_path(name: str) -> Path:
+    return FIXTURES / name
+
+
+# ---------------------------------------------------------------------------
+# Working-copy safety
+# ---------------------------------------------------------------------------
+
+
+def test_build_graph_does_not_modify_original(tmp_path):
+    """build_graph must be a pure read — original project unchanged after call."""
+    src = fixture_path("r_no_lockfile")
+    copy = tmp_path / "project"
+    shutil.copytree(src, copy)
+
+    # Snapshot checksums before
+    before = {p.relative_to(copy): p.read_bytes() for p in copy.rglob("*") if p.is_file()}
+
+    build_graph(copy)
+
+    after = {p.relative_to(copy): p.read_bytes() for p in copy.rglob("*") if p.is_file()}
+    assert before == after, "build_graph modified files in the project directory"
+
+
+# ---------------------------------------------------------------------------
+# Exhibit extraction
+# ---------------------------------------------------------------------------
+
+
+def test_exhibit_list_r_no_lockfile():
+    """All three \\includegraphics / \\input references extracted from paper.tex."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    names = {e.tex_path.name for e in graph.exhibits}
+    assert "fig1.pdf" in names
+    assert "fig3b.pdf" in names
+    assert "tab1.tex" in names
+
+
+def test_exhibit_list_already_clean():
+    graph = build_graph(fixture_path("already_clean"))
+    names = {e.tex_path.name for e in graph.exhibits}
+    assert "fig1.pdf" in names
+    assert "tab1.tex" in names
+
+
+# ---------------------------------------------------------------------------
+# Script-to-exhibit mapping
+# ---------------------------------------------------------------------------
+
+
+def test_tab1_mapped_to_tables_script():
+    """tables.R writes tables/tab1.tex — must be linked as source."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    tab1 = next(e for e in graph.exhibits if e.tex_path.name == "tab1.tex")
+    assert tab1.source is not None, "tab1.tex has no source script"
+    assert "tables.R" in tab1.source.script.name
+
+
+def test_already_clean_all_exhibits_sourced():
+    """Clean project: every exhibit must have a source script."""
+    graph = build_graph(fixture_path("already_clean"))
+    for exhibit in graph.exhibits:
+        assert exhibit.source is not None, (
+            f"{exhibit.tex_path.name} has no source script in already_clean fixture"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gap detection
+# ---------------------------------------------------------------------------
+
+
+def test_fig3b_missing_from_disk_flagged():
+    """fig3b.pdf not on disk and no script writes it → exhibit_missing_from_disk gap."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    gap_kinds = {g.kind for g in graph.gaps}
+    assert GapKind.exhibit_missing_from_disk in gap_kinds
+
+    missing_gap = next(
+        g for g in graph.gaps
+        if g.kind == GapKind.exhibit_missing_from_disk
+    )
+    assert missing_gap.exhibit is not None
+    assert missing_gap.exhibit.name == "fig3b.pdf"
+
+
+def test_fig1_path_mismatch_flagged():
+    """analysis.R writes fig1.pdf to cwd, LaTeX expects figures/fig1.pdf → path mismatch."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    fig1 = next(e for e in graph.exhibits if e.tex_path.name == "fig1.pdf")
+    # Source found via name-match heuristic, path_mismatch True
+    assert fig1.source is not None
+    assert fig1.path_mismatch is True
+
+    gap_kinds = {g.kind for g in graph.gaps}
+    assert GapKind.script_writes_wrong_path in gap_kinds
+
+
+def test_inline_table_flagged():
+    """Table typed directly into tex (no \\input{}) → inline_table gap."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    gap_kinds = {g.kind for g in graph.gaps}
+    assert GapKind.inline_table in gap_kinds
+
+
+def test_inline_statistic_flagged():
+    """'0.047*** (0.012)' in body text → inline_statistic gap."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    gap_kinds = {g.kind for g in graph.gaps}
+    assert GapKind.inline_statistic in gap_kinds
+
+
+def test_already_clean_no_gaps():
+    """Clean project must have zero gaps."""
+    graph = build_graph(fixture_path("already_clean"))
+    assert graph.gaps == [], f"Unexpected gaps in already_clean: {graph.gaps}"
+    assert graph.is_complete
+
+
+# ---------------------------------------------------------------------------
+# Confidentiality detection
+# ---------------------------------------------------------------------------
+
+
+def test_restricted_filename_triggers_restricted_mode():
+    status = check_restricted(fixture_path("restricted_data"))
+    assert status.is_restricted is True
+    assert status.trigger_path is not None
+    assert "census_microdata_restricted" in status.trigger_path.name
+
+
+def test_clean_project_not_restricted():
+    status = check_restricted(fixture_path("already_clean"))
+    assert status.is_restricted is False
+
+
+def test_restricted_check_runs_before_graph(tmp_path):
+    """
+    Simulate the required ordering: check_restricted must be called first.
+    If restricted, the caller must not proceed to build_graph on data files.
+    This test verifies check_restricted returns before any file content is read
+    by checking it works on a dir where data files are unreadable.
+    """
+    src = fixture_path("restricted_data")
+    copy = tmp_path / "project"
+    shutil.copytree(src, copy)
+
+    # Make the data file unreadable
+    dta = copy / "data" / "census_microdata_restricted.dta"
+    dta.chmod(0o000)
+
+    try:
+        # check_restricted scans names only — must succeed even with unreadable file
+        status = check_restricted(copy)
+        assert status.is_restricted is True
+    finally:
+        dta.chmod(0o644)
+
+
+# ---------------------------------------------------------------------------
+# Data file extraction
+# ---------------------------------------------------------------------------
+
+
+def test_external_dropbox_path_detected():
+    """Absolute Dropbox path in analysis.R must appear as external data file."""
+    graph = build_graph(fixture_path("r_no_lockfile"))
+    external = [df for df in graph.data_files if df.is_external]
+    assert len(external) > 0, "No external data files detected"
+    kinds = {df.external_kind for df in external}
+    assert "dropbox" in kinds

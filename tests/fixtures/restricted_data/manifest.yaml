@@ -1,0 +1,16 @@
+fixture_name: restricted_data
+
+gaps: []
+
+path_rewrites: []
+
+version_pins:
+  - language: R
+    method: unknown
+
+is_restricted: true
+restricted_trigger: data/census_microdata_restricted.dta
+
+notes: >
+  Restricted mode must be triggered by filename detection before any file
+  content is read. The trigger is census_microdata_restricted.dta.
