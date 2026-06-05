@@ -48,33 +48,84 @@ _INLINE_STAT_RE = re.compile(
     r")",
 )
 
-# \newcommand{\macroname}{value} — capture path-like macro definitions
+# Path macro definitions — all common LaTeX command-definition forms
+# Matches: \newcommand, \newcommand*, \renewcommand, \renewcommand*,
+#          \providecommand, \def (the last has different syntax)
 _NEWCOMMAND_RE = re.compile(
-    r"\\newcommand\s*\{\\([A-Za-z]+)\}\s*\{([^}]+)\}"
+    r"\\(?:newcommand|renewcommand|providecommand)\*?\s*\{\\([A-Za-z]+)\}\s*\{([^}]+)\}"
+)
+# \def\macroname{value}  — no braces around the name
+_DEF_RE = re.compile(
+    r"\\def\s*\\([A-Za-z]+)\s*\{([^}]+)\}"
 )
 
+# \graphicspath{{dir1/}{dir2/}...}
+_GRAPHICSPATH_RE = re.compile(
+    r"\\graphicspath\s*\{((?:\{[^}]*\})+)\}"
+)
+_GRAPHICSPATH_ENTRY_RE = re.compile(r"\{([^}]*)\}")
+
+# Figure extensions LaTeX tries when no suffix given (in preference order)
+_FIGURE_EXTENSIONS = [".pdf", ".eps", ".png", ".jpg", ".jpeg", ".pgf", ".svg"]
+
 # Commented-out lines — strip before macro/exhibit extraction
-_COMMENT_LINE_RE = re.compile(r"(?m)^[^\S\n]*%.*$")
 _INLINE_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
+
+
+_PATH_LIKE_RE = re.compile(r'^[\w\-./]+$')
+
+
+def _looks_like_path(value: str) -> bool:
+    """True if value could be a file-system path fragment."""
+    if not value or "\\" in value or " " in value:
+        return False
+    # Explicit path separators / relative markers are definitive
+    if "/" in value or value.startswith("..") or value.startswith("."):
+        return True
+    # Simple word (no spaces, no backslashes) — could be a directory name like "figures"
+    return bool(_PATH_LIKE_RE.match(value))
 
 
 def _collect_tex_macros(tex_files: list[Path]) -> dict[str, str]:
     """
-    Scan all tex files for \\newcommand{\\name}{value} definitions where
-    the value looks like a path (contains / or ..). Returns {name: value}.
+    Scan all tex files for path-macro definitions (\\newcommand, \\def, etc.)
+    where the value looks like a path fragment. Returns {name: value}.
+    Later definitions override earlier ones (last-wins, matching TeX semantics).
     """
     macros: dict[str, str] = {}
     for tex in tex_files:
         try:
-            text = tex.read_text(errors="replace")
+            text = _INLINE_COMMENT_RE.sub("", tex.read_text(errors="replace"))
         except OSError:
             continue
         for name, value in _NEWCOMMAND_RE.findall(text):
             value = value.strip()
-            # Only keep macros that look like path fragments
-            if "/" in value or value.startswith("..") or value.startswith("."):
+            if _looks_like_path(value):
+                macros[name] = value
+        for name, value in _DEF_RE.findall(text):
+            value = value.strip()
+            if _looks_like_path(value):
                 macros[name] = value
     return macros
+
+
+def _collect_graphicspath(tex_files: list[Path]) -> list[str]:
+    """
+    Extract all search directories from \\graphicspath declarations.
+    Returns list of raw path strings (relative to the declaring tex file's dir).
+    """
+    paths: list[str] = []
+    for tex in tex_files:
+        try:
+            text = _INLINE_COMMENT_RE.sub("", tex.read_text(errors="replace"))
+        except OSError:
+            continue
+        for m in _GRAPHICSPATH_RE.finditer(text):
+            for entry in _GRAPHICSPATH_ENTRY_RE.findall(m.group(1)):
+                entry = entry.strip()
+                if entry:
+                    paths.append((tex.parent, entry))
+    return paths  # list of (declaring_dir, path_string)
 
 
 def _expand_macros(ref: str, macros: dict[str, str]) -> str:
@@ -84,12 +135,56 @@ def _expand_macros(ref: str, macros: dict[str, str]) -> str:
     return ref
 
 
+def _resolve_exhibit_path(
+    ref: str,
+    tex_dir: Path,
+    graphicspaths: list[tuple[Path, str]],
+) -> Path | None:
+    """
+    Try to resolve a figure reference to an existing file.
+    Resolution order:
+      1. As-is relative to tex_dir
+      2. For each graphicspath entry, relative to that declaring dir
+      3. With each of _FIGURE_EXTENSIONS appended (for extension-less refs)
+    Returns the resolved absolute path if found on disk, else the
+    tex_dir-relative resolved path (for tracking missing exhibits).
+    """
+    p = Path(ref)
+
+    def _try(candidate: Path) -> Path | None:
+        c = candidate.resolve()
+        if c.exists():
+            return c
+        # Try adding extensions if the ref has no suffix
+        if not candidate.suffix:
+            for ext in _FIGURE_EXTENSIONS:
+                with_ext = Path(str(candidate) + ext).resolve()
+                if with_ext.exists():
+                    return with_ext
+        return None
+
+    # 1. Relative to tex file's own directory
+    found = _try(tex_dir / p if not p.is_absolute() else p)
+    if found:
+        return found
+
+    # 2. Each \graphicspath entry
+    for declaring_dir, gp_entry in graphicspaths:
+        found = _try(declaring_dir / gp_entry / p)
+        if found:
+            return found
+
+    # Not on disk — return the best-guess canonical path for gap reporting
+    return (tex_dir / p).resolve()
+
+
 def _extract_exhibits_from_tex(
-    tex_path: Path, macros: dict[str, str] | None = None
+    tex_path: Path,
+    macros: dict[str, str] | None = None,
+    graphicspaths: list[tuple[Path, str]] | None = None,
 ) -> list[Path]:
     """Return all external file paths referenced via include/input/includegraphics."""
     text = tex_path.read_text(errors="replace")
-    # Strip comments so commented-out \includegraphics lines are ignored
     text = _INLINE_COMMENT_RE.sub("", text)
     raw = _TEX_INCLUDE_RE.findall(text)
     exhibits: list[Path] = []
@@ -98,11 +193,10 @@ def _extract_exhibits_from_tex(
         ref = ref.strip()
         if macros:
             ref = _expand_macros(ref, macros)
-        # Skip refs that still contain unexpanded macros (start with \)
         if ref.startswith("\\"):
             continue
-        p = Path(ref)
-        exhibits.append((tex_dir / p).resolve() if not p.is_absolute() else p.resolve())
+        resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
+        exhibits.append(resolved)
     return exhibits
 
 
@@ -293,9 +387,9 @@ def build_graph(project_root: Path) -> DependencyGraph:
     # 1. Find .tex files
     tex_files = sorted(project_root.rglob("*.tex"))
 
-    # 2. Collect LaTeX path macros (\newcommand{\dataplots}{../output/data/plots})
-    #    before extracting exhibits so macro-based paths can be expanded.
+    # 2. Collect LaTeX path macros and \graphicspath search dirs
     macros = _collect_tex_macros(tex_files)
+    graphicspaths = _collect_graphicspath(tex_files)
 
     # 3. Find all scripts
     scripts: list[Path] = []
@@ -312,7 +406,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
     raw_exhibit_paths: list[Path] = []
     tex_gaps: list[Gap] = []
     for tex in tex_files:
-        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex, macros))
+        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex, macros, graphicspaths))
 
     # Collect the set of resolved output tex files so we don't scan them
     # for inline content — they're generated tables, not prose.
