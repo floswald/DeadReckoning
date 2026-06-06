@@ -34,8 +34,8 @@ def landuse_graph():
 
 # Skip entire module if fixture not present
 pytestmark = pytest.mark.skipif(
-    not FIXTURE.exists(),
-    reason="Real-world landuse fixture not present (local only)",
+    not FIXTURE.exists() or not any(FIXTURE.rglob("*.tex")),
+    reason="Real-world landuse fixture data not present (local only)",
 )
 
 
