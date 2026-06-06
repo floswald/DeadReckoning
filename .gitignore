@@ -14,4 +14,8 @@ build/
 *.log
 
 # Real-world test cases contain actual research data — not committed
-tests/real_world/
+# Ignore everything inside, but keep oracle.py scripts (they are code)
+tests/real_world/**
+!tests/real_world/
+!tests/real_world/*/
+!tests/real_world/*/oracle.py
