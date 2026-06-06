@@ -20,6 +20,88 @@ from .runner import RunResult, ValidationResult
 
 
 # ---------------------------------------------------------------------------
+# R base image selection
+# ---------------------------------------------------------------------------
+
+# Packages that trigger rocker/geospatial (already bundles GDAL/GEOS/PROJ/sf)
+_GEOSPATIAL_PKGS = frozenset({"sf", "terra", "stars", "rgdal", "rgeos", "sp", "mapview",
+                               "tmap", "leaflet", "osmdata", "osrm", "tidygeocoder"})
+
+# Packages that trigger rocker/tidyverse
+_TIDYVERSE_PKGS = frozenset({"tidyverse", "ggplot2", "dplyr", "tidyr", "readr", "purrr",
+                              "tibble", "stringr", "forcats", "lubridate", "hms"})
+_TIDYVERSE_THRESHOLD = 3  # ≥3 tidyverse packages → tidyverse image
+
+# Packages that trigger rocker/stan
+_STAN_PKGS = frozenset({"rstan", "brms", "cmdstanr", "rstanarm", "bayesplot"})
+
+
+def _select_r_base_image(packages: list[str], version: str) -> str:
+    """
+    Choose the most capable rocker base image for a package set.
+
+    Priority (highest first):
+      geospatial pkgs present  → rocker/geospatial (bundles GDAL/sf/spatial libs)
+      Stan pkgs present        → rocker/stan
+      ≥3 tidyverse pkgs        → rocker/tidyverse
+      default                  → rocker/r-ver
+    """
+    pkg_set = set(packages)
+    if pkg_set & _GEOSPATIAL_PKGS:
+        return f"rocker/geospatial:{version}"
+    if pkg_set & _STAN_PKGS:
+        return f"rocker/stan:{version}"
+    if len(pkg_set & _TIDYVERSE_PKGS) >= _TIDYVERSE_THRESHOLD:
+        return f"rocker/tidyverse:{version}"
+    return f"rocker/r-ver:{version}"
+
+
+# ---------------------------------------------------------------------------
+# System dependency mapping (packages → apt-get packages)
+# ---------------------------------------------------------------------------
+
+# rocker/geospatial already bundles all spatial deps — skip for those packages
+_GEOSPATIAL_ALREADY_IN_IMAGE = frozenset({"sf", "terra", "stars", "rgdal", "rgeos",
+                                           "sp", "mapview", "tmap", "osmdata"})
+
+# R package → list of apt-get -dev packages required at compile time
+_SYSTEM_DEPS: dict[str, list[str]] = {
+    "xml2":       ["libxml2-dev"],
+    "rvest":      ["libxml2-dev"],
+    "curl":       ["libcurl4-openssl-dev", "libssl-dev"],
+    "httr":       ["libcurl4-openssl-dev", "libssl-dev"],
+    "httr2":      ["libcurl4-openssl-dev", "libssl-dev"],
+    "openssl":    ["libssl-dev"],
+    "RPostgres":  ["libpq-dev"],
+    "RMySQL":     ["libmysqlclient-dev"],
+    "arrow":      ["libcurl4-openssl-dev", "libssl-dev"],
+    "igraph":     ["libglpk-dev"],
+    "sodium":     ["libsodium-dev"],
+    "V8":         ["libnode-dev"],
+    "rJava":      ["default-jdk"],
+    "Rmpfr":      ["libmpfr-dev"],
+    "units":      ["libudunits2-dev"],
+    "sf":         ["libudunits2-dev", "libgdal-dev", "libgeos-dev", "libproj-dev"],
+    "terra":      ["libudunits2-dev", "libgdal-dev", "libgeos-dev", "libproj-dev"],
+}
+
+
+def _system_deps_for_packages(packages: list[str], base_image: str) -> list[str]:
+    """
+    Return sorted list of apt packages needed for the R package set.
+    Skips spatial deps when base_image is rocker/geospatial (already bundled).
+    """
+    is_geospatial_image = "geospatial" in base_image
+    apt_pkgs: set[str] = set()
+    for pkg in packages:
+        if is_geospatial_image and pkg in _GEOSPATIAL_ALREADY_IN_IMAGE:
+            continue
+        for apt_pkg in _SYSTEM_DEPS.get(pkg, []):
+            apt_pkgs.add(apt_pkg)
+    return sorted(apt_pkgs)
+
+
+# ---------------------------------------------------------------------------
 # Base images by language
 # ---------------------------------------------------------------------------
 
@@ -61,9 +143,21 @@ def _r_dockerfile(env_spec: EnvSpec) -> str:
     pkg_names = [p.name for p in env_spec.packages]
     r_vec = "c(" + ", ".join(f'"{n}"' for n in pkg_names) + ")" if pkg_names else "c()"
 
-    lines = [
-        f"FROM --platform={_DEFAULT_PLATFORM} {_R_BASE.format(version=version)}",
-        "",
+    base_image = _select_r_base_image(pkg_names, version)
+    system_deps = _system_deps_for_packages(pkg_names, base_image)
+
+    lines = [f"FROM --platform={_DEFAULT_PLATFORM} {base_image}", ""]
+
+    if system_deps:
+        apt_list = " ".join(system_deps)
+        lines += [
+            "RUN apt-get update && apt-get install -y \\",
+            f"    {apt_list} \\",
+            "    && rm -rf /var/lib/apt/lists/*",
+            "",
+        ]
+
+    lines += [
         "ENV RENV_PATHS_CACHE=/renv/cache",
         "",
         f'RUN Rscript -e \'install.packages({r_vec}, repos="{snapshot_url}", Ncpus=4)\'',

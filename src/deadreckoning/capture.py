@@ -54,6 +54,12 @@ def capture_env(project_root: Path) -> EnvSpec:
         from .stata import capture_stata_env
         return capture_stata_env(project_root)
 
+    # R package with DESCRIPTION — extract declared Imports
+    description = project_root / "DESCRIPTION"
+    if description.exists():
+        r_files = list(project_root.rglob("*.R")) + list(project_root.rglob("*.r"))
+        return _from_description(description, project_root, r_files)
+
     # R project without renv.lock — infer snapshot date from file mtimes / git
     r_files = list(project_root.rglob("*.R")) + list(project_root.rglob("*.r"))
     if r_files:
@@ -502,4 +508,57 @@ def _r_inferred_from_date(project_root: Path, r_files: list[Path]) -> EnvSpec:
         snapshot_date=snapshot_date,
         snapshot_url=snapshot_url,
         confidence=0.4,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DESCRIPTION parsing (R package projects)
+# ---------------------------------------------------------------------------
+
+_DESCRIPTION_FIELD_RE = re.compile(r"^(\w[\w.]+)\s*:\s*(.+?)(?=\n\w|\Z)", re.DOTALL | re.MULTILINE)
+_DESCRIPTION_PKG_RE = re.compile(r"([A-Za-z][A-Za-z0-9._]*)")
+
+
+def _parse_description_imports(text: str) -> list[str]:
+    """Extract package names from Imports:, Depends:, Suggests: fields."""
+    packages: list[str] = []
+    for m in _DESCRIPTION_FIELD_RE.finditer(text):
+        field = m.group(1).strip()
+        if field not in ("Imports", "Depends", "Suggests", "LinkingTo"):
+            continue
+        value = m.group(2)
+        for pkg_match in _DESCRIPTION_PKG_RE.finditer(value):
+            name = pkg_match.group(1)
+            if name not in ("R", "base", "methods", "stats", "utils", "grDevices",
+                            "graphics", "datasets", "tools", "compiler"):
+                packages.append(name)
+    return list(dict.fromkeys(packages))  # deduplicate, preserve order
+
+
+def _from_description(
+    description: Path,
+    project_root: Path,
+    r_files: list[Path],
+) -> EnvSpec:
+    """Build EnvSpec from DESCRIPTION file (R package project)."""
+    text = description.read_text(errors="replace")
+    packages = _parse_description_imports(text)
+    pkg_specs = [PackageSpec(name=p, pin_method=PinMethod.inferred_from_date) for p in packages]
+
+    snapshot_date = (
+        _infer_date_from_rhistory(project_root)
+        or _infer_date_from_git_log(project_root)
+        or _infer_date_from_file_mtimes(r_files)
+    )
+    snapshot_url = (
+        f"https://packagemanager.posit.co/cran/{snapshot_date}" if snapshot_date else None
+    )
+
+    return EnvSpec(
+        language="R",
+        packages=pkg_specs,
+        pin_method=PinMethod.inferred_from_date,
+        snapshot_date=snapshot_date,
+        snapshot_url=snapshot_url,
+        confidence=0.55,
     )

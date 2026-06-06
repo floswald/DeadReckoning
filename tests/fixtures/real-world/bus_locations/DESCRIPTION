@@ -1,0 +1,72 @@
+Package: BusLocations
+Title: Spatial Rents, Garage Location, and Competition in the London Bus Market (Marra and Oswald)
+Version: 0.1
+Authors@R: 
+    c(person(given = "Florian",
+           family = "Oswald",
+           role = c("aut", "cre"),
+           email = "florian.oswald@gmail.com",
+           comment = c(ORCID = "0000-0001-7737-2038")),
+      person(given = "Marleen",
+           family = "Marra",
+           role = c("aut", "ctb"),
+           email = "marleen.marra@sciencespo.fr"),
+      person(given = "Martin",
+           family = "Bretschneider",
+           role = c("ctb"),
+           email = "martin.bretschneider@sciencespo.fr"),
+       person(given = "Xinyu",
+           family = "Dai",
+           role = c("ctb"),
+           email = "xinyu.dai@sciencespo.fr"),
+       person(given = "Ian",
+           family = "Hsieh",
+           role = c("ctb"),
+           email = "ihsiehsieh@gmail.com"),
+       person(given = "Damanveer Singh",
+           family = "Dhaliwal",
+           role = c("ctb"),
+           email = "damandhaliwal1910@gmail.com"))
+Description: This package builds and organises the data used for the paper Detecting Collusion by profitable deviations by Marleen Marra and Florian Oswald
+License: `use_mit_license()`, `use_gpl3_license()` or friends to
+    pick a license
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    ggplot2,
+    patchwork,
+    sf,
+    data.table,
+    mapview,
+    dplyr,
+    tidyr,
+    Hmisc,
+    magrittr,
+    stargazer,
+    progress,
+    RColorBrewer,
+    osrm,
+    futile.logger,
+    uklr,
+    lubridate,
+    tidygeocoder,
+    janitor,
+    kableExtra,
+    dfidx,
+    pROC,
+    ROCR,
+    fuzzyjoin,
+    dotwhisker,
+    broom,
+    htmlwidgets,
+    modelsummary,
+    mlogit,
+    readxl,
+    readr,
+    ggrepel,
+    here,
+    pbapply
+Suggests: 
+    testthat
