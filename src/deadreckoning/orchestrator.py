@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .capture import capture_env
 from .confidentiality import check_restricted
-from .docker import BuildResult, ContainerValidationResult, build_image, generate_dockerfile, run_in_container
+from .docker import BuildResult, ContainerRunResult, build_image, generate_dockerfile, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop
 from .graph import build_graph
 from .models import DependencyGraph, EnvSpec, RestrictedStatus
@@ -37,7 +37,7 @@ class PipelineResult:
     native_validation: ValidationResult | None = None
     dockerfile: str | None = None
     docker_build: BuildResult | None = None
-    container_validation: ContainerValidationResult | None = None
+    container_validation: ContainerRunResult | None = None
     error: str | None = None
 
     @property
@@ -132,7 +132,7 @@ def run_pipeline(
         return result
 
     # Step 6+7+8: Docker
-    result.dockerfile = generate_dockerfile(result.env_spec, master_script=master_script)
+    result.dockerfile = generate_dockerfile(result.env_spec)
     result.docker_build = build_image(working_copy, result.dockerfile, docker_tag)
     if not result.docker_build.success:
         result.error = "Docker build failed"
