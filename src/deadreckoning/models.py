@@ -145,6 +145,7 @@ class ExpectedGap(BaseModel):
     kind: GapKind
     exhibit: Optional[str] = None
     location: Optional[str] = None
+    note: Optional[str] = None
 
 
 class ExpectedVersionPin(BaseModel):
@@ -161,4 +162,5 @@ class Manifest(BaseModel):
     version_pins: list[ExpectedVersionPin] = Field(default_factory=list)
     files_removed: list[str] = Field(default_factory=list)
     is_restricted: bool = False
+    restricted_trigger: Optional[str] = None
     notes: Optional[str] = None

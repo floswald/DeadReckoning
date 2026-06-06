@@ -1,0 +1,24 @@
+fixture_name: python_external_data
+gaps:
+- exhibit: figures/fig1.pdf
+  kind: script_writes_wrong_path
+  note: code/analysis.py writes 'fig1.pdf' to cwd instead of 'figures/fig1.pdf'.
+- exhibit: figures/fig2.pdf
+  kind: script_writes_wrong_path
+  note: code/analysis.py writes 'fig2.pdf' to cwd instead of 'figures/fig2.pdf'.
+is_restricted: false
+notes: 'Python project with external Dropbox data paths and two path-mismatch figures.
+
+  Absolutized data paths to /Users/jsmith/Dropbox/python_project.
+
+  Removed dir prefix from write call in code/analysis.py: ''figures/fig1.pdf'' → ''fig1.pdf''.
+
+  Removed dir prefix from write call in code/analysis.py: ''figures/fig2.pdf'' → ''fig2.pdf''.'
+path_rewrites:
+- original: /Users/jsmith/Dropbox/python_project/data/lfs_2019.csv
+  rewritten: data/lfs_2019.csv
+  scripts_affected:
+  - code/analysis.py
+version_pins:
+- language: Python
+  method: pip_freeze

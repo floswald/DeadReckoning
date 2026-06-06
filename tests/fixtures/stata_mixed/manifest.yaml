@@ -1,0 +1,31 @@
+fixture_name: stata_mixed
+gaps:
+- exhibit: figures/fig1.pdf
+  kind: script_writes_wrong_path
+  note: code/analysis.do writes 'fig1.pdf' to cwd instead of 'figures/fig1.pdf'.
+- kind: inline_table
+  location: paper.tex
+  note: Table 'tab1' inlined as tabular — no \input{}.
+is_restricted: false
+notes: 'Mixed Stata fixture: 2 scripts, path mismatch, absolute data paths, inline
+  table.
+
+  Absolutized data paths to /Users/jsmith/Dropbox/stata_project.
+
+  Removed dir prefix from write call in code/analysis.do: ''figures/fig1.pdf'' → ''fig1.pdf''.
+
+  Inlined table ''tab1'' directly in LaTeX.
+
+  Added orphan script code/old_merge.do (not called by any other script).'
+path_rewrites:
+- original: /Users/jsmith/Dropbox/stata_project/data/lfs_2019.dta
+  rewritten: data/lfs_2019.dta
+  scripts_affected:
+  - code/analysis.do
+- original: /Users/jsmith/Dropbox/stata_project/data/lfs_2019.dta
+  rewritten: data/lfs_2019.dta
+  scripts_affected:
+  - code/tables.do
+version_pins:
+- language: Stata
+  method: inferred_from_date

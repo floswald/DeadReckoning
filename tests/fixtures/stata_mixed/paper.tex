@@ -1,0 +1,22 @@
+\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+\section{Results}
+\begin{figure}
+  \includegraphics[width=\textwidth]{figures/fig1.pdf}
+  \caption{Wage vs Age}
+\end{figure}
+\begin{table}
+\begin{tabular}{lcc}
+\hline
+Variable & Coef & SE \\
+\hline
+Age & 0.23 & (0.05) \\
+Income & 1.47 & (0.12) \\
+\hline
+\end{tabular}
+\caption{Table tab1 (inlined)}
+\end{table}
+
+\input{tables/tab2.tex}
+\end{document}

@@ -1,0 +1,32 @@
+fixture_name: multi_language_full
+gaps:
+- exhibit: figures/fig_r.pdf
+  kind: script_writes_wrong_path
+  note: analysis.R writes 'fig_r.pdf' to cwd instead of figures/fig_r.pdf.
+- exhibit: figures/fig_jl.pdf
+  kind: script_writes_wrong_path
+  note: analysis.jl writes 'fig_jl.pdf' to cwd instead of figures/fig_jl.pdf.
+- exhibit: figures/fig_stata.pdf
+  kind: script_writes_wrong_path
+  note: analysis.do writes 'fig_stata.pdf' to cwd instead of figures/fig_stata.pdf.
+is_restricted: false
+notes: 'Three-language project: R + Julia + Stata. All three scripts have path mismatches
+  (write to cwd). All three have absolute Dropbox paths to rewrite. No lockfiles —
+  env must be inferred from date for all three languages.'
+path_rewrites:
+- original: /Users/jsmith/Dropbox/JPE_paper/data/lfs_2019.dta
+  rewritten: data/lfs_2019.dta
+  scripts_affected:
+  - code/analysis.R
+  - code/analysis.do
+- original: /Users/jsmith/Dropbox/JPE_paper/data/lfs_2019.csv
+  rewritten: data/lfs_2019.csv
+  scripts_affected:
+  - code/analysis.jl
+version_pins:
+- language: R
+  method: inferred_from_date
+- language: Julia
+  method: inferred_from_date
+- language: Stata
+  method: inferred_from_date

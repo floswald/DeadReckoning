@@ -11,6 +11,7 @@ dependencies = [
     "networkx",
     "pydantic",
     "docker",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
