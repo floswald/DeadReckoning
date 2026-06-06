@@ -29,15 +29,37 @@ _DUA_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Extensions that are code, documentation, or output — never restricted data.
+# Matching on these would produce false positives (e.g. census_*.Rd is R docs).
+_SAFE_EXTENSIONS: frozenset[str] = frozenset({
+    ".r", ".rmd", ".rd", ".rnw",           # R code/docs
+    ".py", ".ipynb",                        # Python
+    ".jl",                                  # Julia
+    ".do", ".ado",                          # Stata code
+    ".m",                                   # MATLAB
+    ".tex", ".bib", ".cls", ".sty",        # LaTeX
+    ".md", ".rst", ".txt", ".html",        # documentation
+    ".toml", ".lock", ".json", ".yaml", ".yml",  # config/lockfiles
+    ".log", ".out", ".aux", ".blg", ".bbl",      # build artifacts
+    ".pdf", ".png", ".jpg", ".jpeg", ".svg", ".eps",  # figures/output
+    ".sh", ".bat",                          # shell scripts
+})
+
 
 def check_restricted(project_root: Path) -> RestrictedStatus:
     """
     Scan filenames and directory names only — no file contents read.
     Returns RestrictedStatus immediately on first match so the caller
     can gate further reads before processing begins.
+
+    Code, documentation, and output file extensions are excluded from
+    pattern matching to avoid false positives (e.g. census_add_toutain.Rd).
     """
     for path in project_root.rglob("*"):
         if not path.is_file():
+            continue
+
+        if path.suffix.lower() in _SAFE_EXTENSIONS:
             continue
 
         stem = path.stem.lower()

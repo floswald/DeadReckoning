@@ -465,10 +465,10 @@ def build_graph(project_root: Path) -> DependencyGraph:
     macros = _collect_tex_macros(tex_files)
     graphicspaths = _collect_graphicspath(tex_files)
 
-    # 3. Find all scripts
+    # 3. Find all scripts (rglob("*.jl") can match directories like LandUse.jl)
     scripts: list[Path] = []
     for ext in _SCRIPT_EXTENSIONS:
-        scripts.extend(project_root.rglob(f"*{ext}"))
+        scripts.extend(p for p in project_root.rglob(f"*{ext}") if p.is_file())
     scripts = sorted(set(scripts))
 
     # 4. Extract all write calls from scripts
