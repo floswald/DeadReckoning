@@ -1,0 +1,2954 @@
+\documentclass[12pt]{article}
+
+
+
+
+\usepackage{setspace}
+\usepackage{geometry}
+\geometry{verbose,lmargin=2cm,rmargin=2cm,bmargin=2cm,tmargin=2cm}
+\usepackage[authoryear]{natbib}
+\usepackage[normalem]{ulem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{graphicx}
+\usepackage{siunitx}
+\usepackage[normalem]{ulem}
+\usepackage{colortbl}
+\usepackage{multirow}
+\usepackage{hhline}
+\usepackage{calc}
+\usepackage{tabularx}
+\usepackage{threeparttable}
+\usepackage{wrapfig}
+\usepackage{adjustbox}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{pdflscape}
+\usepackage{newpxtext,newpxmath}
+\definecolor{dark-red}{rgb}{0.8,0.15,0.15}
+\definecolor{dark-blue}{rgb}{0.15,0.15,0.8}
+\definecolor{medium-blue}{rgb}{0,0,0.5}
+\hypersetup{
+	colorlinks, linkcolor={dark-red},
+	citecolor={dark-red}, urlcolor={dark-red}
+}
+\newcommand{\redbtext}[1]{\textbf{\textcolor[rgb]{1,0,0}{#1}}}
+\newcommand{\florian}[1]{\textcolor[rgb]{0,0.5,0.99}{florian: #1}}
+\newcommand{\bluetext}[1]{\textcolor[rgb]{0,0,1}{#1}}
+\newcommand{\greentext}[1]{\textcolor[rgb]{0.5176471, 0.7647059, 0.1372549}{#1}}
+
+
+
+
+% To fix the disappearing of references when MM compiles - try following?
+%    \usepackage{biblatex}
+%    \addbibresource{filename.bib}
+%    \printbibliography
+
+
+
+
+
+
+
+
+%% TABLES & FIGURES
+% Tables / Figures at end of package
+% \usepackage{figcaps}
+% \printfigures
+
+
+
+
+\newcommand{\rootdir}{..}  % go down one level
+\newcommand{\plots}{\rootdir/\rootdir/Output/plots}
+\newcommand{\tables}{\rootdir/\rootdir/Output/tables}
+
+
+
+
+% User-defined table options
+\newcommand\fnote[1]{\captionsetup{font=small}\caption*{\emph{Notes}: #1}} % footnote in table
+
+
+
+
+%% MATH 
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+
+
+
+%% ENVIRONMENTS
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+\newtheorem{corollary}{Corollary}
+
+
+
+
+% R modelsummary numerical setup
+\usepackage{siunitx}
+\newcolumntype{d}{S[
+	input-open-uncertainty=,
+	input-close-uncertainty=,
+	parse-numbers = false,
+	table-align-text-pre=false,
+	table-align-text-post=false
+	]}
+
+
+%Empty footnote marker
+\newcommand\blfootnote[1]{%
+	\begingroup
+	\renewcommand\thefootnote{}\footnote{#1}%
+	\addtocounter{footnote}{-1}%
+	\endgroup
+}
+
+
+
+
+%Vertically align rows
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash} m{#1} }
+
+
+
+
+% Assumption
+\newtheorem{assumption}{\normalfont\scshape Assumption}
+
+
+
+
+%% TITLE PAGE
+\begin{document}
+	\onehalfspacing
+	
+	
+	% \title{Spatial Rents, Garage Location, and Competition in the London Bus Market}
+	\title{The Geography of Market Power: Firm Location, Spatial Rents, and Their Social Costs}
+	\medskip
+	
+\author{%
+    \Large{Marleen Marra}\thanks{Department of Economics, KU Leuven, 
+    Leuven, Belgium.}
+    \qquad 
+    \Large{Florian Oswald}\thanks{Uni Turin ESOMAS and Collegio Carlo Alberto}
+}
+
+\makeatletter
+\let\@fnsymbol\@arabic
+\makeatother
+
+
+\footnotetext[3]{We thank Martin Bretschneider, Xinyu Dai and Ian Hsieh 
+for excellent research assistance. We also thank participants at the TSE 
+and UCL Econometrics of Games, Matching and Networks conference, EARIE, 
+UCL, IO$^+$, NBER Transportation Market Design Workshop, as well as 
+Giulia Brancaccio, Gabriel Ahlfeldt, Milena Almagro, Estelle Cantillon, 
+Pierre-Philippe Combes, Francesco Decarolis, Pierre Dubois, Michele 
+Fioretti, Emeric Henry, Jakub Kastl, and Adam Rosen for feedback. We are 
+very grateful to Les Stitson from the London Omnibus Traction Society for 
+compiling a dataset for this study based on their archives and for 
+generously answering numerous questions about the history of garage 
+ownership in London. Thanks also to Robert Munster, the owner of 
+\href{http://www.londonbusroutes.net}{LondonBusRoutes.net}, for answering 
+questions and sharing data on bus route characteristics with us. We can 
+be reached via e-mail at \texttt{marleen.marra@kuleuven.be} and 
+\texttt{florian.oswald@unito.it}.}
+	\date{\today}
+	%\JEL{}
+	%\Keywords{}
+	
+	\maketitle
+	\begin{abstract}
+		
+		This paper studies spatial rents in markets where firm location determines 
+competitive advantage. Using the London bus market---where operators maintain 
+proprietary garage networks and bid for route contracts---we develop a 
+structural model linking garage value to procurement profits through dead mile 
+costs, local monopoly rents, and economies of density. Exploiting the exclusive 
+use of garages, we recast the location problem as one where garages choose 
+operators, yielding a tractable discrete choice estimator. Estimates reveal 
+meaningful trade-offs between spatial rent components. Counterfactual 
+simulations identify an efficiency loss of \textsterling 34M--\textsterling 
+51M per year from garage hold-out, and patterns consistent with tacit 
+market-sharing among operators.
+		
+	%	This paper estimates a structural model of the market for public bus transportation services in London, which links the value of a bus garage to expected profits from bus route procurement auctions. The model is used to derive the spatial rents associated with owning a garage with a certain centrality in the network of garages and routes, i.e., the benefits of having low transportation costs, being far removed from competitors, and having multiple garages clustered together. We exploit the unique features of the London bus industry to recover these rents using a standard discrete choice estimator, reflecting the highly complex location choice problem of heterogeneous multi-plant firms competing in an economy with spatial rents. %The magnitude of these spatial rents is based on the identity of the operator owning the garage. 
+	%	Even a parsimonious specification is shown to capture remarkably well the observed changes in the garage-operator network since the privatization of this industry in 1994, as constructed from archival data and bus spotter sites. Counterfactual simulations reveal an efficiency loss of \textsterling 34M -- \textsterling 51M per year, of 12.3\%-18.5\% of the total procurement cost of providing public bus transportation in London, resulting from operators holding out the sale of their garages. The degree to which profitable garage transactions are ``blocked" is lower in periods when more firms enter the market, consistent with anti-competitive market-sharing behavior.  \\
+		%Counterfactual simulations confirm that collusive behavior is partly responsible for the observed degree of spatial clustering of firms, beyond the estimated economies of density from operating routes from nearby garages.
+		%This paper studies  firm conduct in the market for public bus transportation services in London, which is an industry where  and the associated spatial rents, 
+		% -- i.e. rents which arise if physical distance limits competitive forces. 
+		% A structural model links the value of a bus garage to expected profits from bus route procurement auctions, to derive the spatial rents associated with owning a garage with a certain centrality in the network of garages and routes. 
+		
+		
+		\noindent JEL codes: D44, L41, L92, R41\\
+		% D22, %firm behavior: empirical analysis
+		% D44, %auctions
+		% H57, %procurement
+		% L13, %Oligopoly and Othe Imperfect Market,
+		% L41, %Monopolozation - Horizontal Anticompetitive practices
+		% L92, %Railroads and other surface transportation, 
+		% R12, %Size and Spatial Distributions of Regional Economic Activity (urban)
+		% R41\\ %Transportation: Demand, Supply, and COngestion - Travel Time- Safety and Accidents - Transportaion Noise
+		% {\color{blue} (select a few: I'd say D44, L41, L92, R41 see tex for description)} \\
+		Keywords: Firm Location Choice, Procurement Auctions, Public Transport, Urban 
+		
+		
+	\end{abstract}
+	\newpage
+	
+	
+%% INTRODUCTION
+This paper studies the classical trade-off \citep[e.g.,][]{Hotelling1929,
+salop1979monopolistic} between the profit gains that arise when firms locate 
+close to demand and the intensified spatial competition that results from it. 
+We examine this trade-off in an urban setting with building restrictions 
+and an industry that exhibits economies of density when multiple plants 
+operate in close proximity. We refer to the combination of these spatial 
+drivers of profitability---proximity to demand, distance from rivals, and 
+density of own operations---as \emph{spatial rents}. Both economies of 
+density and spatial competition generate spillovers across locations that 
+quickly render the firm location problem computationally intractable.\footnote{With $F$ firms and $L$ locations, allowing for multiple firms at the same location, the number of possible 
+assignments is $F^L$. With magnitudes $F = 10$ and $L = 100$, as in our setting, this would exceed $10^{100}$, 
+larger than the number of atoms in the observable universe. Even evaluating 
+a single firm's entry decision across all locations requires integrating 
+over $2^L$ combinations when spillovers make profits at each location 
+depend on the full network configuration.
+% keeping in mind here that our setting is different in that it is one operator per garage, and we want each operator have at least one garage. in that case you use the inclusion-exclusion formula for surjective functions from L locations to F firms. For F = L = 2 that is 2, not F^L = 4. the correct formula is apparently
+% S(L, F) = Σ_{k=0}^{F} (-1)^k C(F,k) (F-k)^L
+% yielding S(100, 10) ≈ 9.997 × 10^99 — essentially 10^100 but about 0.027% smaller. :-)
+} As a 
+result, the empirical literature provides scant evidence on two important 
+questions at the intersection of industrial organization and urban policy: 
+How do building restrictions and zoning affect firm location decisions and 
+the spatial distribution of market power? And do firms protect local monopoly 
+rents by staying out of each other's territories, distorting competition 
+and shaping the transport geography of cities? We study these questions in the context of public 
+bus transportation services in London and show how to exploit features of this market to overcome the dimensionality problem of multi-firm location entry with spatial rents. 
+
+In this market, private bus operators maintain proprietary bus fleets from their own garages and bid for contracts 
+to operate bus routes across Greater London. Operators are less competitive 
+in route auctions for routes far from their garages, due to the \emph{dead 
+mile} costs of transporting empty vehicles between garage and route. On 
+average, supplying 100 minutes of contracted bus service requires 13 minutes 
+of dead mile driving time, and this has an economically meaningful effect on 
+procurement outcomes and firms' bidding behavior. As a result, the spatial layout and composition  
+of each operator's garage network is the primary determinant of its 
+competitive position and expected profitability---making this market 
+unusually clean for the study of spatial rents.\footnote{The setting also restricts 
+the set of choice variables for participating firms: TfL specifies the exact 
+route, frequency, vehicle type, and contract duration, so that garage 
+location remains the main margin on which operators can differentiate 
+themselves.} Moreover, the exclusive use of garages by single firms and the 
+scarcity of vacant industrial land in central London---only 2 percent as of 
+2021---means the garage stock is nearly fixed over time, which, as we show, 
+is key to the tractability of the model.
+
+We develop a \emph{reversed-choice} framework that exploits the exclusive 
+use of garages to recast the firm location problem as one where each garage 
+chooses a single operator, rather than the substantially more complex problem of operators choosing a \emph{set} of garages. This reversal 
+is applicable more broadly to markets where locations are used exclusively 
+by single firms (or plots are small enough that each accommodates only one 
+occupant) and ownership transitions are observed sequentially in the 
+data---conditions that characterize many markets for commercial real estate, 
+retail space, and industrial land. Under these conditions, the reversed-choice 
+framework delivers three advantages over standard approaches. First, it 
+sidesteps the equilibrium multiplicity problems that arise when modeling 
+simultaneous location choices across many firms: conditioning on the observed 
+network at each ownership transition yields a unique prediction for each 
+sequential choice. Second, transaction prices cancel from the 
+equilibrium assignment condition because they enter symmetrically on both 
+sides of the ownership transfer, so neither observing nor estimating them 
+is required---particularly valuable since transaction prices for commercial 
+and industrial property are typically proprietary and difficult to obtain. 
+Third, the framework accommodates unusually rich spatial spillovers across 
+locations without requiring the high-dimensional integration over strategies 
+that makes standard multi-player entry games computationally intractable, or moment inequalities set-identifying structural features of interest. 
+The garage value function is grounded in a structural procurement auction 
+model that links spatial positioning to expected profitability through both 
+cost and mark-up channels, while remaining agnostic about competitive 
+conduct at the auction stage. The tight structural link between garage value 
+and expected procurement revenues from TfL route auctions provides a direct 
+monetary interpretation of the structural estimates in the absence of garage transaction price data. 
+
+A parsimonious specification with five network variables fits the data 
+remarkably well, achieving a McFadden pseudo-$R^2$ of 0.554 and a mean AUC
+of 0.868.\footnote{\emph{Area Under the Curve (AUC)} is a standard measure in $[0,1]$ used in evaluating the predictive fit of discrete choice models, summarising how well the estimated utilities rank chosen alternatives above unchosen ones across all operators and time periods.} The structural estimates reveal that an operator is indifferent 
+between having its closest own garage 3.7 minutes nearer by road and having 
+one fewer competing operator's garage within a ten-minute drive. Incumbency 
+benefits accumulate steadily with tenure, consistent with the gradual 
+build-up of garage-specific investments, while garage value is otherwise 
+determined by spatial positioning rather than historical patterns of use. 
+This suggests that the observed clustering of operators in certain parts of 
+London reflects genuine spatial economic forces rather than mere inertia.
+
+To assess robustness to the sequential timing assumption, we estimate a 
+bundle choice specification that treats pairs of consecutive ownership 
+transitions as a joint decision. This increases the dimensionality of the 
+choice problem from 1,841 to 33,513 observations and introduces a different 
+implicit structural error variance, so direct comparison of coefficients across 
+specifications is not informative. We instead test equality of coefficient 
+ratios, which are scale-invariant and directly comparable across logit 
+models. A delta method test fails to reject equality of the key trade-off 
+between economies of density and local monopoly rents ($p = 0.945$), while 
+the dead miles coefficient is the one ratio that differs significantly 
+($p = 0.019$). Taken together, the baseline and bundle estimates establish that the trade-off between proximity 
+to own garages and isolation from competitor garages is the robust central 
+finding of the structural estimation, and that this finding does not depend 
+on the specific timing assumptions of the estimation framework.
+
+We apply the structural estimates to three sets of counterfactuals. We first
+map the spatial rent surface across all candidate locations in London to 
+identify where the private returns to new garage development are largest. 
+Rather than a monotonic geographic gradient (center to fringe of city), the surface reveals dispersed 
+high-value pockets across the city, reflecting that the 2019 garage network 
+is broadly well-positioned relative to the route network, with the northeast 
+emerging as the main area of genuinely underprovided coverage. 
+
+We then use the model to assess the private returns to garage capacity 
+expansion, estimating the value to operators of assigning 50 additional 
+buses to each garage individually. The bus-garage assignment equation 
+underlying these simulations recovers the correct operating garage for 
+46 percent of routes exactly and 62--70 percent within a two-minute 
+dead-mileage tolerance against observed tender data. Regressing estimated 
+expansion values on structural covariates reveals that the dominant cost 
+driver is the average dead miles of currently assigned routes, while 
+incumbency tenure and spatial isolation from competitors --- the local 
+monopoly rent channel --- are the main drivers of heterogeneity across 
+garages. One additional competitor garage within a 10-minute drive reduces 
+the return to capacity expansion by \textsterling 735{,}000, approximately 
+4--5 percent of the operator-specific baseline expansion value. This 
+quantifies a classic divergence between private and social returns to 
+infrastructure investment \citep{laffont1993theory}: the socially desirable 
+margin of capacity investment would minimize dead miles, reducing 
+procurement costs borne by the taxpayer and the environmental burden of 
+empty bus travel in a congested city, whereas private incentives are 
+additionally governed by market power considerations that generate no such 
+benefits. %Correcting this divergence requires regulatory intervention to 
+%internalize the externalities that profit-maximizing operators have no 
+%incentive to reduce.
+
+Our empirical approach builds on a literature 
+that uses endogenous firm location decisions to learn about spatial rents, market structure, and competition 
+\citep[e.g.,][]{Mazzeo2002, Seim2006, Jia2008, Holmes2011, 
+ellickson2013estimating, nishida2015estimating, zheng2016spatial, oberfield2023plants}. The 
+closest antecedents are \citet{Jia2008} and \citet{nishida2015estimating}, 
+who estimate location choice games with both economies of density and 
+competitive effects, and \citet{Holmes2011} and \citet{houde2023nexus}, who 
+quantify economies of density in distribution networks using a moment 
+inequality approach. Our 
+setting --- many firms, exclusive-use locations, a congested mega-city, and regulated fixed demand --- permits 
+identification of an unusually rich set of spatial rents: economies of density, local monopoly rents from strategic 
+competitor positioning, and transportation costs simultaneously with a simple estimation strategy.\footnote{For example, \citet{Holmes2011} abstracts from local monopoly rents and agglomeration benefits. On the other hand, the moment inequality approach delivers bounds on the part of fixed costs that varies across locations, which is not identified in the reversed-choice framework. We discuss this limitation when simulating counterfactual (urban planning) policy scenario's.}  %Our setting avoids this: garage locations are fixed and ``demand" equates to expected lump-sum transfers from TfL, so observed operator location choices identify spatial rents directly.  %The moment inequality approach, by contrast, bounds fixed entry costs that %, without requiring moment inequalities. The key is the 
+%\emph{reversed-choice} framework: rather than operators choosing garages, 
+%garages choose operators, delivering a tractable multinomial discrete choice 
+%estimating equation.%\footnote{Garage 
+%transaction prices cancel from the equilibrium assignment condition 
+%in the reversed-choice framework since they are, in equilibrium, 
+%identical across choice alternatives, so estimation does not require 
+%observing them. The tight structural link between garage utility and TfL 
+%auction revenues then provides a direct monetary interpretation of the 
+%spatial rent estimates --- the profitability threshold is determined by 
+%contrasting operator entry against vacating the plot to the market --- 
+%without the need to bound fixed costs from counterfactual entry decisions.}
+Relatedly, \citet{Cao2026} provide a framework to address potential distance endogeneity in location choice models; this concern does not arise here as both garage plots and ``demand" (expected lump-sum payments from Transport for London) are fixed. 
+
+Our setting connects naturally to an urban economics literature on 
+agglomeration and the spatial organization of cities 
+\citep[e.g.,][]{combes2015empirics, de2011handbook}. 
+\citet{heblich2020making} show that railway infrastructure shaped 
+workplace-residence separation and land values in London through 
+agglomeration forces; we study the complementary question of how industrial 
+land frictions and private firm location choices generate market power 
+within the city's existing bus route network. The urban policy 
+counterfactuals connect to a growing literature on transport network design 
+\citep{fajgelbaum2020optimal, allen2022welfare, balboni2019harm, 
+kreindler2024optimal} and heterogeneous returns to infrastructure investment 
+\citep{brancaccio2024investment}. We identify where private and social 
+returns to garage investment diverge, with a single source of a wedge: 
+spatial isolation from competitors generates local monopoly rents that push 
+operators away from the cost-minimizing configuration. Through this mechanism, private garage ownership transfers rents from the public (taxpayers) to firms, increasing dead miles and consequently inflating congestion, noise, and exhaust emissions beyond what cost minimization alone would require. This connects to the classic urban 
+economics of transport investment \citep{small2024economics} and to the 
+Pigouvian tradition \citep{pigou1920economics, laffont1993theory} of 
+identifying market failures from uninternalized externalities.
+
+The garage value function is grounded in a structural procurement auction 
+model \citep{guerre2000optimal, Cantillon2006, Cantillon2007}. Our analysis of location choice externalities 
+thus offers a spatial interpretation of a well-established finding in procurement 
+design: when quality has noncontractible dimensions, awarding contracts on 
+price alone generates adverse selection and distorted investment incentives 
+\citep{laffont1986using, bajari2001incentives, lopomo2023optimal, 
+decarolis2014awarding, gagnepain2002incentive}.\footnote{TfL procures bus routes on 
+price alone conditional on contractible service attributes, leaving garage 
+location --- the primary margin on which operators can extract rents above 
+cost minimization --- outside the contractual framework. In \cite{marra-oswald}, we highlight this and document that 
+the operational efficiency of the bus-garage assignment can improve by 14\%, looking at dead miles alone. The current paper focuses 
+on the strategic forces governing the garage ownership network itself.} In a alternative interpretation of the data (Appendix \ref{A:collusion}), we assess whether the spatial clustering of operators 
+reflects collusive market-sharing arrangements in addition to 
+profit-maximizing location choices, exploiting the structural link between 
+garage location values and expected procurement profits to construct implied 
+punishment values for unrealized transactions. This contributes to a 
+literature on collusion detection in procurement 
+\citep[e.g.,][]{porter1983study, Porter1993, Porter1999, bajari2003deciding, 
+kawai2022detecting} --- which typically takes firms' assets and locations 
+as given when testing for bid-level collusion --- and connects to a 
+literature showing how market structure and firm positioning can facilitate 
+tacit coordination \citep[e.g.,][]{miller2017understanding, bourreau2021market, 
+berry2001mergers, sullivan2017ice}. The spatial pattern of implied punishment 
+values correlates strongly with garage isolation, reinforcing the 
+private-public wedge in location incentives: garages in more isolated 
+positions generate both higher private returns and deter entry by competitors.\footnote{As the expected negative 
+relationship of implied minimum ``punishment" (in the collusive interpretation) with the number of active firms is sensitive to specification, we cannot rule out the competitive interpretation and take no stance on whether market-sharing dynamics underlie part of the observed garage network.}
+
+The remainder of the paper is organized as follows. Section~\ref{S:Industry} 
+describes the market and data. Section~\ref{S:Model} presents the structural 
+model. Section~\ref{S:Results} presents the estimation results and robustness 
+checks. Section~\ref{S:Counterfactuals} presents the urban policy 
+counterfactuals. Section~\ref{S:Conclusion} concludes. 
+
+%% INDUSTRY AND DATA
+\section{Industry and data description}\label{S:Industry}
+London Bus Services Ltd (London Buses) is part of Surface Transport within 
+\emph{Transport for London (TfL)}, in charge of delivering the Mayor's 
+Transport Strategy. This involves transporting over six million passengers on 
+7,700 scheduled buses across 675 different routes stretching over 490 million 
+kilometers of road per year. Procuring bus operation services from private 
+operators costs TfL on average \textsterling 273m annually over the period 
+2003--2019, paid for by UK taxpayers. The market has been organized in this 
+way since it was privatized along geographic lines in 1994. Today, six large 
+international transportation firms and a handful of smaller operators compete 
+for tenders.\footnote{The major operators over our sample period are Abellio, Arriva, Go-Ahead, Metroline, RATP, and Stagecoach.} This section describes 
+the market structure and our data, documents the spatial clustering of bus 
+garages, and provides reduced-form evidence linking garage network position 
+to route auction outcomes.
+
+For our analysis of spatial rents, we constructed a comprehensive dataset of 
+the operator and bus garage network in London between 1994--2019. Each operator 
+maintains its own proprietary garage network, and the location of these garages 
+\emph{vis-\`{a}-vis} the routes they service is crucial: operators are less 
+competitive in route auctions for routes far from their garages, due to the 
+dead mile costs of transporting empty vehicles between the garage and the route 
+endpoints. As a result, the distance of an operator's garage to the bus route 
+in question has an economically meaningful effect on procurement outcomes and 
+firms' bidding behavior, as we document in Section~\ref{S:TfL} below. 
+Throughout, we refer to the firm operating buses from a garage as the garage 
+\emph{owner}---regardless of whether the firm holds a freehold or long 
+leasehold contract---and we exclude the small number of cases where a garage 
+is shared between two operators. Figure~\ref{fig:garages-TS-byoperator} documents changes in garage ownership over time by operator in our sample. 
+
+The London Omnibus Traction Society provided a historic dataset based on their 
+archive of bus schedules, matching the majority of routes tendered since 2005 
+to the garage from which they were operated, and containing information about 
+garage openings and closings. We complement this with garage location 
+information from the privately-run \href{https://londonbuses.co.uk/}{London 
+Bus Routes website}, bus stop locations from the \href{https://tfl.gov.uk/info-for/open-data-users/our-open-data}{TfL Open Data Initiative}, 
+and garage addresses verified using the Google Maps API. We use the actual driving time as our preferred measure of distance to fully account for the spatial nature of the problem, including geographic obstacles such as the River Thames that can only be crossed at certain points. For a comprehensive 
+description of the market and the data, see \cite{marra-oswald}.
+
+A final dataset contains 2017 cross-sectional ward-level median house prices 
+obtained from the UK HM Land Registry Price Paid Data, aggregated to 679 
+Greater London electoral wards by the \href{https://data.london.gov.uk/dataset/average-house-prices-by-borough-ward-msoa-and-lsoa-2jkxd/}{Greater London Authority}. Matching each garage to its ward, this 
+provides a local land-value control used to address potential confounds in 
+the estimated return to capacity expansion in Section~\ref{SS:UP1}.
+
+% stats in the paragraph from function BusLocations:::sample_description_stats()
+The structural estimates are based on \emph{movers}, e.g. changes to the ownership of garages observed over time. The estimation sample is based on garage-operator network changes taking place after 1994. We hus exclude the first year when the market was being privatized and when the garage network was being formed, as the initial privatization assignments are not strategic choices in the model's sense. We start with 112 garages and exclude three garages with incomplete information about the ownership history between 1995-2019, seven garages that were shared at some point in time, and one temporary garage. Finally, 10 of the remaining 101 garages never changed ownership in our data, so the estimation is based on (multiple) ownership changes in the remaining 91 garages.
+
+These 91 garages account for a total of 192 ownership changes, which form the basis of our structural estimation. Table \ref{T:garagechangedates} lists the type of ownership change that took place. In 42 percent of the times that the garage-operator network changes, a garage is acquired from another operator. In 32 percent of the time the network changes because an operator occupies a garage for the first time. In the remaining cases the network changes because a garage is closed down (33 times) or temporarily not used to operate bus routes (17 times). We interpret these latter cases as the garage being bought from or sold to \emph{the market}, as described further in the theoretical framework. Furthermore, the relevant unit of time will be a so-called \emph{changedate}, which we define as a date at which we observe any change in the garage-operator ownership structure. There are 114 changedates in our data from 1995 to 2019, with on average 1.68 ownership changes per changedate. In 66\% of cases there is a single operator changing garage on a given changedate. The vast majority of network changes (76\%) also involve just one garage per time. These statistics are documented in Table \ref{T:garagechangedates} and exploited in the estimation strategy. %The changedate structure 
+%matters for estimation: garages that change hands simultaneously are treated 
+%as choosing among operators at the same point in time (see Section~\ref{S:Model}).
+
+To best capture spatial rents associated with the geographic location of garages relative to routes and other garages, distances are measured as the exact drive times on the London road network.\footnote{Simple straight-line distance between points would miss a great deal of nonlinearities arising from geography and, ultimately, true transportation costs. We therefore use the \href{http://project-osrm.org/}{Open Source Routing Machine (OSRM)} to compute optimal drive times between all garages and all other garages and all 55,578 bus stops in London. Besides the distance to the endpoints of the routes, we also consider the distance to the closest stopover point, where at least 5 routes intersect. See \cite{marra-oswald} for further details.} We use the average drive time to the two endpoints of a route as our primary dead miles measure (\emph{Dead Miles (Start-Stop Minutes)}). This measure reflects that a route needs to be serviced from both directions, so being near only one endpoint is not necessarily optimal. A garage at the midpoint of a long route, for instance, minimizes total dead miles even if it is not adjacent to either terminus. We consider the sensitivity of our results to other dead mile measures, including the distance to the nearest route endpoint and the average distance to a stopover point where at least 5 routes intersect in Sections \ref{S:TfL} and \ref{S:Robustness}. 
+
+
+\begin{table}
+\centering
+\caption{Summary of all garage network changes 1995-2019}\label{T:garagechangedates}
+\begin{minipage}{0.5\textwidth}
+\centering
+\input{\tables/ownership-statistics.tex}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+\centering
+\input{\tables/combined-share-changes.tex}
+\end{minipage}
+\fnote{The left panel accounts all the changes in the garage-operator network observed in the data. The right panel documents the number of operators entering a garage and the number of garages entered by an operator simultaneously, that is, on the same date. The right panel is based on all times when operators opened a new garage (the 61 ``New entry" events) or purchased an existing garage from another operator (the 81 ``Ownership change" events) between 1995-2019.}
+\end{table}
+
+\begin{figure}[!tb]
+\centering
+\includegraphics[width=0.9\textwidth]{\plots/routes-garages-operators.pdf}
+\caption{Route network and garage locations by operator group.}
+\fnote{Garage-route network at the end of the sample (2019). Points denote locations of garages, line segments indicate bus routes, and colors indicate which operator owns the garage or operates the route.\label{fig:garage-locations}}
+\end{figure}
+
+In the remainder of this section, we document new facts about the observed garage-operator network and its relation to bidding in route auctions.
+
+\subsection{Spatial clustering of garages}
+Figure \ref{fig:garage-locations} shows a snapshot of our dataset in 2019, 
+which links routes to the garage where they were operated from. A key 
+observation is the spatial clustering of bus garages. Specifically, the figure 
+shows that garages of a certain operator group are concentrated in certain areas 
+of London, rather than being uniformly spread out across the city. The 
+structural model and counterfactual simulations are designed to understand the 
+factors driving this observed spatial clustering. The model is based on changes 
+in the garage ownership network over time. Garages change ownership between 1--7 times, and no obvious spatial pattern 
+can be detected as to which garages change ownership more frequently (Appendix Figure \ref{fig:ownership-count}). This 
+makes systematic selection of peripheral versus central garages into the 
+estimation sample unlikely. 
+
+One explanation for operating routes from nearby garages is the specialized 
+functions that some garages perform within an operator's network. Driver 
+training, maintenance, engineering, logistics, and HR are among the functions 
+that are often centralized in the larger garages.\footnote{Table 
+\ref{T:garage-syn} in the Appendix lists the specialized functions performed 
+by select garages within operators' networks, based on information on their 
+websites.} Together with the capacity constraints due to building restrictions 
+in the densely populated city, these might generate cost synergies from 
+operating routes from nearby garages. For instance, a report of the UK 
+Industrial Land Commission documents that in 2021 (close to the end of our sample period), only 2 percent of the 
+industrial land in central London is left vacant, constraining expansion opportunities of existing garages.\footnote{See 
+\href{https://centreforlondon.org/wp-content/uploads/2022/01/CFL-IndustrialLand-v4-1.pdf}{https://centreforlondon.org/wp-content/uploads/2022/01/CFL-IndustrialLand-v4-1.pdf}.}
+
+
+\subsection{Link between garage network and revenue from route operation}\label{S:TfL}
+
+\begin{table}[!tb]
+\centering
+\caption{Route auctions and Garage Networks of winning bidders\label{tab:dm-reg-stats}}
+\begin{adjustbox}{max width = \textwidth}
+\input{\tables/deadmiles-tender-data-summary.tex}
+\end{adjustbox}
+\fnote{\emph{Dead Miles} denote a distance measure from garage to a certain point on a bus route. In the context of this table (route auctions), this concerns the distance from the \emph{winner's} garage to the auctioned route. \emph{Start-Stop} is the average of distance to start and stop point of the route, \emph{Stopover} refers to a bus stop with at least 5 intersection bus routes (representing the 95-th percentile of the number of route intersections at bus stops). The count for complete records of dead mile measures is inferior to the number of observed auctions (1907) because we observe the operating garage for only 592 out of 711 tendered routes (i.e 83\% of cases). The distance measures further differ because fewer bus stops can be classified as stop-over than starting or end points, for example. Incomplete route characteristics (Route Length, PVR) are a result of incomplete coverage in our Wikia and LBR data sources. Different combinations of those variables in our models below will imply different effective sample sizes.}
+\end{table}
+
+
+\begin{table}[!tb]
+\centering
+\caption{Explaining the size of accepted bids for London bus routes\label{tab:dm-reg-DM_startstop_minutes}}
+\begin{adjustbox}{max width = 0.9\textwidth}
+\input{\tables/DM-regs-combined.tex}
+\end{adjustbox}
+\fnote{Statistical significance: + p $<$ 0.1, * p $<$ 0.05, ** p $<$ 0.01, *** p $<$ 0.001.  All models employ the drivetime distance in minutes between the winner's garage to a certain spatial characteristic of the auctioned route: Columns (1)-(3) averages distances to start and end points of the bus route, column (4) uses distance to route start point only, column (5) uses distance to stopover points. See table \ref{tab:dm-reg-stats} for variable details.}
+\end{table}
+
+
+We next relate winning bids from the publicly available TfL tender data to our 
+network variables to support the claim that the placement of a garage in the network of 
+routes and other garages is relevant for route auction outcomes. We observe the 
+operating garage for 592 out of 698 routes; the remainder are cases where the 
+operating garage was not a mandatory field in the tender documentation and was 
+left unreported. To the extent that garages are more likely to be reported when 
+they are closer to the route---and thus more strategically salient---this 
+selection could bias the reduced-form estimates. The structural estimates of 
+Section \ref{S:Model} are not subject to this concern, as they are based on 
+garage proximity and capacity measures that are universally observable and 
+formalized in the assignment equation \eqref{eq:assignment_buses}. We 
+subsequently compute the empty driving time for 1,457 out of 1,907 
+route-auctions. We regress the winning bid for a route contract on: i) auction 
+and route characteristics, ii) our computed measures of the dead miles driving 
+time between the route and the garage where the route is operated from, iii) 
+the driving time between the operating garage and the closest garage of the same 
+operator (\emph{Closest Own Garage}, to capture agglomeration benefits), and 
+iv) the dead miles of the closest competitor garage (to capture local monopoly 
+rents).
+
+On average, buses drive 13.28 minutes (or 7.78 km) empty each time they move 
+between garage and route, as measured by the \emph{Dead Miles Start-Stop} 
+variable (see Table \ref{tab:dm-reg-stats}). An additional minute of dead mile driving time increases the winning bid by 
+at least \textsterling 19,000, as shown in columns (1)--(2) of Table 
+\ref{tab:dm-reg-DM_startstop_minutes}; the estimate is larger when excluding 
+auction-level controls for the Peak Vehicle Requirement and the number of 
+bidders, which absorb part of the variation in bids. Adding the strategic 
+network variables in column (3) renders the dead miles coefficient insignificant. This pattern is consistent with dead miles affecting both costs---pushing bids 
+up---and competitive positioning---potentially compressing mark-ups as operators 
+near a route also tend to face more local competition. These offsetting forces 
+are difficult to separate in a reduced-form regression on winning bids. The 
+structural model of Section \ref{S:Model} identifies the net effect on operator 
+profits rather than on winning bids, which sidesteps this issue. 
+
+The results also point to a negative correlation between the accepted bid and 
+the proximity of the winning bidder's \emph{Closest Own Garage} to the 
+operating garage, consistent with cost synergies from a spatially concentrated 
+garage network. The coefficient on this variable should be understood to reflect 
+a mix of cost effects and mark-up adjustments from being better positioned than 
+competitors. The effect of competitor proximity, by contrast, is more cleanly 
+interpretable: since the drive time to a competitor's garage does not directly 
+affect the winning operator's costs, this coefficient plausibly reflects the 
+competitive effect on equilibrium mark-ups alone. The winning bid is about 
+\textsterling 43,000 higher for each additional minute of drive time between 
+the operating garage and the nearest competitor garage, consistent with 
+operators earning higher mark-ups when shielded from nearby rivals.
+
+The results are robust to alternative dead mile measures, as shown in the final 
+two columns of Table \ref{tab:dm-reg-DM_startstop_minutes}. The distance to the 
+closest route endpoint (column labelled ``Start") is insignificant in the full specification. The distance 
+to the nearest stopover point ---where at least five routes intersect--- (column labelled ``Stopover") enters with 
+the expected sign but is statistically weaker  and economically smaller, with 
+each additional minute increasing the winning bid by \textsterling 9,000. The other coefficients are also stable across distance specifications. 
+
+%% MODEL
+\section{Model}\label{S:Model}
+This section develops a static two-stage model that formally links the value 
+of a firm's location to the spatial rents it can obtain, in order to estimate 
+the determinants of those rents from observed location choices. Time is divided 
+into periods, each consisting of two stages. At the beginning of each period, operators observe 
+the current garage-operator network and draw idiosyncratic cost shocks for each 
+route. In stage 1, changes to the garage-operator network occur. In stage 2, 
+operators bid on bus route contracts given the updated network. Firms are 
+myopic with respect to future changes in the garage-operator network, but 
+account for the persistence induced by multi-year route contracts when bidding. 
+The process then repeats in the next period.
+
+\subsection{Stage 2: Bidding for routes given a garage network}\label{SS:bidding}
+In the second stage, firms compete for route contracts in a first-price sealed 
+bid auction given the existing operator-garage network $\Gamma$, which is 
+public information.\footnote{While the first-price auction mechanism simplifies 
+the exposition, TfL awards route contracts via combinatorial auctions where 
+firms may submit route package bids. Abstracting from package bids is without 
+loss of generality. Moreover, \cite{Cantillon2007} find limited empirical 
+evidence for cost synergies in operating multiple routes at once. They 
+hypothesize that garage capacity constraints may limit the cost savings from 
+operating at a larger scale, which we explicitly incorporate in the second 
+stage of the model.} The cost for operator $i$ to operate route $r$ from 
+garage $j$ can be written as
+\begin{align}\label{eq:routecost}
+c_{ijr}(\Gamma) = \tau\big(\delta_{ijr}(\Gamma), \nu_{ijr}\big)
+\end{align}
+where $\delta_{ijr}(\Gamma)$ collects the deterministic cost components: 
+route-specific variables such as service length and frequency, and factors 
+related to the position of garage $j$ in the network of routes and garages 
+$\Gamma$, including dead miles between the garage and the route and, if 
+economies of density are present, the distance between garage $j$ and other 
+garages owned by operator $i$.\footnote{In practice, operator $i$ operates 
+route $r$ from its closest garage; we are more precise about this in Section 
+\ref{SS:entry}.} The term $\nu_{ijr}$ captures idiosyncratic unobserved cost 
+variation that is private information to the firm, varying independently across 
+operators, routes, and garages, with $\tau(\cdot)$ increasing in $\nu_{ijr} 
+\sim F_{\nu}$.
+
+Operators participating in the auction bid to maximize expected profit from 
+operating the route,
+\begin{align}\label{eq:exp_prof}
+\pi_{ijr}^{route}(\Gamma) = (b_{ijr} - c_{ijr}(\Gamma))\,P(\text{win}|b_{ijr};\Gamma)
+\end{align}
+where $P(\text{win}|b_{ijr};\Gamma)$ is the probability of winning the auction 
+when submitting bid $b_{ijr}$, given the operator-garage network $\Gamma$. To 
+accommodate both competitive and non-competitive explanations for the observed 
+spatial clustering of garages, we do not impose that all potential bidders submit competitive bids. 
+We only impose the minimal restriction that lower-cost firms achieve higher 
+expected procurement profits in equilibrium. This assumption holds for the 
+unique Bayes-Nash equilibrium in the competitive case, where the setting 
+reduces to a standard independent private values first-price procurement 
+auction.\footnote{Under standard regularity conditions, the unique symmetric 
+Bayes-Nash equilibrium $\sigma^*(c_{ijr})$ solves \citep{guerre2000optimal}:
+\begin{align}\label{eq:eqbid}
+\sigma^*(c_{ijr}(\Gamma)) = c_{ijr}(\Gamma) + 
+\frac{P(\text{win}|\sigma^*(c_{ijr}(\Gamma));\Gamma)}
+{P'(\text{win}|\sigma^*(c_{ijr}(\Gamma));\Gamma)}
+\end{align}
+where $P'(\text{win}|\sigma^*(c_{ijr});\Gamma)$ denotes the derivative of 
+$P(\text{win}|b_{ijr};\Gamma)$ with respect to the bid. The mark-up 
+decreases in the number of competitors and is compressed when cost 
+distributions are less dispersed, for instance when all operators have garages 
+at similar distances from the route.} It also holds for a strong cartel with 
+side-payments and, by the results of \cite{Pesendorfer2000study}, for a weak 
+cartel without side-payments when sufficiently many contracts are auctioned, 
+as both cases yield (approximately) efficient allocations. This assumption 
+therefore accommodates a wide range of strategic behavior at the auction stage, 
+including bidding cartels with unspecified internal organization.\footnote{For 
+example, some firms may form a bidding ring and hold an internal knockout 
+auction to determine their representative bidder in the target auction. In that 
+case, \eqref{eq:exp_prof} applies to the representative ring member and the 
+competitive bidders, and side-payments must be made conditional on winning to 
+other ring members \citep[see e.g.,][]{mcafee1992bidding,Pesendorfer2000study,
+Asker2010study}.} Where multiple equilibria exist, we assume that players 
+coordinate on a symmetric bidding strategy $\sigma^*(\cdot)$, and denote the 
+resulting expected equilibrium profits by $\pi^{*route}(\cdot)$.
+
+Economies of density and dead miles affect $\pi^{*route}(\cdot)$ directly through 
+costs, but also generate local monopoly rents through the equilibrium mark-up. 
+To illustrate this, consider the win probability in the IPV first-price auction 
+with additively separable $\tau(\cdot)$:
+\begin{align}\label{eq:strucvalue1}
+P(\text{win}|b_{ijr};\Gamma) = \prod_{h\neq i} 
+\left[1 - F_{\nu}\!\left(\sigma^{-1*}(b_{ijr})-\delta_{hj'r}(\Gamma)\right)\right]
+\end{align}
+% inside the square bracket is the probability of event "operator h, using his garage j', which implies deterministic costs of \delta(h,j',r), has a cost shock \nu which makes his total cost higher than mine." hence, he submits a higher big, hence I win.
+where $j'$ is the garage from which operator $h$ would operate route $r$. 
+Conditional on $b_{ijr}$, the probability of winning increases in the distance 
+between competitors' garages and the route, since greater distance implies 
+higher deterministic costs $\delta_{hj'r}(\Gamma)$ for competitor $h$. Costly 
+dead miles therefore generate local monopoly rents, particularly for operators 
+whose garages are more isolated from those of their rivals. Symmetrically, if 
+agglomeration benefits are present, operating from a denser own garage network 
+lowers costs and raises the probability of winning, further increasing expected 
+profits. Having established how garage location drives expected rents from TfL 
+route auctions, we next turn to what this implies for the garage-operator match 
+in the first stage, where $\pi^{*route}(\cdot)$ serves as the value function that 
+governs location choices.
+
+
+ %Buses can be considered stand-alone units with their schedules and performance overseen by the firm's operations centre. %\footnote{For example, if a bus is running late on its own schedule, the operations center controllers contact the driver to take action, as explained on \href{https://www.reddit.com/r/london/comments/15n71jf/bus_drivers_of_london_how_does_the_job_work/}{this forum}: \emph{``Every route has time cards, you leave at a specific time and have multiple way points where you are supposed to be at a predetermined time. London zoo at 9.27, Baker street at 10.22 for example. If you run too late behind schedule then the controllers will instruct you to change the destination board, terminate early and give passengers transfer tickets. You turn the bus at a specific point and then hopefully you’re on time heading the opposite direction again.".}} 
+
+\subsection{Stage 1: Garage Entry}\label{SS:entry}
+The value of garage $j$ to operator $i$, $\Pi_{ij}$, is the sum of expected 
+profits generated through route procurement across all routes the garage can 
+service. Given the role of capacity constraints in the London bus market, we 
+must first determine the set routes which are served from each garage. Let $\text{Capacity}_{j}$ 
+denote the number of buses that garage $j$ can accommodate, and let 
+$\text{PVR}_{r}$ denote the Peak Vehicle Requirement of route $r$---the required 
+number of buses needed to operate the route at peak demand, as mandated by TfL. Buses are allocated 
+to the garage starting from the nearest routes, until the capacity constraint 
+binds. Specifically, letting $r_j^{n:R}$ denote the $n^{th}$ closest out of 
+$R$ routes to garage $j$, the sequence of routes ordered by increasing dead 
+miles to garage $j$ is
+\begin{equation}\label{eq:assignment_buses}
+\mathbf{r}_j = \{r_j^{1:R},r_{j}^{2:R},\dots,r_j^{R:R}\}
+\end{equation}
+with $r_j(m)$ denoting the $m^{th}$ route in this sequence and $PVR_j(m)$ the 
+corresponding PVR. We maintain that the profit function exhibits constant 
+returns to scale in PVR, so that each bus stationed at a garage contributes 
+equally to the value of that garage.\footnote{This assumption is supported by 
+the operational structure of the London bus market, where individual buses 
+operate on fixed schedules independently monitored by the firm's operations 
+centre, with no material scale economies at the vehicle level. For example, if a bus is running late on its own schedule, the operations center controllers contact the driver to take action, as explained on \href{https://www.reddit.com/r/london/comments/15n71jf/bus_drivers_of_london_how_does_the_job_work/}{this forum}: \emph{``Every route has time cards, you leave at a specific time and have multiple way points where you are supposed to be at a predetermined time. London zoo at 9.27, Baker street at 10.22 for example. If you run too late behind schedule then the controllers will instruct you to change the destination board, terminate early and give passengers transfer tickets. You turn the bus at a specific point and then hopefully you’re on time heading the opposite direction again.".}}
+
+Garages are more valuable to operator $i$ when they have greater capacity, are located closer to 
+more profitable routes, closer to other garages owned by $i$, and further away from 
+competitors' garages. The garage value function that captures these forces is
+\begin{align}\label{eq:garagestruc}
+\Pi_{ij}(\Gamma) = \sum_{m=1}^{R} \sum_{v=1}^{PVR_j(m)} \beta_{r_j(m)} 
+\frac{\pi^{*route}_{ijr_j(m)}(\Gamma)}{PVR_j(m)} \mathbf{1}\!\left(\sum_{l=0}^{m-1}
+PVR_j(l)+v \leq \text{Capacity}_j\right)
+\end{align}
+with $PVR_j(0)=0$, $\mathbf{1}(\cdot)$ the indicator function, and 
+$\beta_{r_j(m)}$ the discount rate associated with the timing of the auction 
+for the $m^{th}$ closest route. The fraction times $\beta_r$ 
+%\frac{\pi^*_{ijr_j(m)}(\Gamma)}{PVR_j(m)}$ 
+gives the present value of expected 
+profit per bus stationed in garage $j$ from the procurement contract for route $r=r_j(m)$. 
+The summation over routes and buses (vehicles $v$), truncated by the indicator function, 
+accounts for filling the garage to capacity with buses from routes in order of 
+increasing dead miles.\footnote{The garage value function naturally implies 
+that operators only exert competitive pressure on routes not too far from their 
+garages when the effect of dead miles on operating cost is sufficiently large, 
+so that the model does not require an ad hoc distance cutoff in bidding.} 
+Distance from competitors' garages generates local monopoly rents through the 
+equilibrium bid mark-up, while proximity to routes and own garages affects 
+variable profits through operating costs.
+
+Two considerations motivate a semi-structural rather than fully structural 
+approach to estimating \eqref{eq:garagestruc}. First, while the route auctions are modeled 
+independently for tractability, TfL in practice auctions routes in small 
+batches using package bidding. Identifying the joint cost distribution in a 
+combinatorial auction model requires observing all bids for each route 
+\citep{Cantillon2007}, which is not feasible as the available data contains 
+only the winning and lowest bids. Second, taking the garage value 
+function directly to data requires taking a stand on competitive conduct at the 
+auction stage. Assuming competitive bidding would preclude the assessment of 
+whether collusive market-sharing explains the observed spatial clustering, while 
+characterizing the auction equilibrium under collusion requires strong 
+assumptions about the cartel's internal organization that are not warranted 
+without further evidence. 
+
+We therefore follow the standard convention of the entry literature and adopt 
+a semi-structural approach \citep[e.g.,][]{Seim2006, Jia2008, Holmes2011, 
+ellickson2013estimating}, characterizing $\Pi_{ij}$ as a function known up to 
+a vector of parameters but informed by the structural representation in 
+\eqref{eq:garagestruc}. Modeling the auction stage explicitly serves two 
+purposes even within this semi-structural framework. First, it disciplines the 
+choice of network variables by separating those that operate through costs---such 
+as dead miles and own garage proximity---from those that operate through 
+equilibrium mark-ups---such as competitor garage proximity---as illustrated in 
+Section \ref{S:TfL}. Second, it supports the counterfactual welfare calculations 
+in Section \ref{S:Counterfactuals}, where we link estimated location utilities 
+to changes in procurement costs.
+
+We now describe how the network $\Gamma$ is formed. A salient feature of the 
+London bus garage market is that garage use is exclusive: the incumbent operator 
+must be willing to vacate a garage before another firm can enter. In addition, building 
+constraints in London mean that the set of garages is nearly constant over 
+time. These two features---exclusive use and a stable garage stock---allow us 
+to recast the entry game as one where \emph{each garage choose one operator}, rather 
+than operators choosing a \emph{set} of garages. As we show in the next section, this reversal delivers a tractable multinomial estimation 
+framework and avoids the need to solve explicitly for 
+operators' location strategies. Moreover, since all potential entrants must pay the market garage price, prices cancel in the garages choose operators framework, and we 
+do not need to observe them to estimate the model, as formalized below.
+
+\subsubsection{Garages choose operators}
+We assume complete information at this stage. This is motivated by the 
+repeated nature of interactions among the same set of firms across all garage 
+transactions: operators are well-informed about each other's valuations, and 
+buyout decisions involve extended negotiation rather than simultaneous moves. 
+Under complete information, the garage price determination process can be 
+described as a second-price auction, as in other negotiated-price asset markets 
+\citep{allen2019search, Slattery2021}: the winning operator pays a price equal 
+to the value of the garage to its second-most-interested buyer, since the 
+incumbent will not sell below that threshold and competing operators will not 
+bid above their own valuation.
+
+The equilibrium price of garage $j$ is therefore
+\begin{equation}\label{eq:eqprice}
+p_{j}^* = \Pi_{j}^{N-1:N}
+\end{equation}
+where $\Pi_{j}^{N-1:N}$ denotes the second-highest value of garage $j$ among 
+all $N$ market participants, with $\Pi_{ij}(\Gamma)$ reflecting the expected 
+profits to operator $i$ in the hypothetical scenario where $i$ enters garage 
+$j$, holding the rest of the operator-garage network fixed. All potential 
+entrants face this same price: $p_{ij} = p_{j}^*$. Importantly, the incumbent 
+operator is included in this order statistic, since the highest-value entrant 
+can only acquire the garage at a price exceeding the incumbent's own valuation. 
+The transaction price thus serves as an endogenous opportunity cost of 
+retention for the incumbent, analogous to a second-price auction with the 
+seller as an additional bidder. Since transaction prices enter the indirect utility functions of all operators symmetrically, they cancel in equilibrium, and we do not 
+need to observe them to estimate the model. We further assume that operators 
+are driven by their full variable profits in this price negotiation process (including the 
+idiosyncratic component $\epsilon_{ij}$), supporting that at least the identity of the 
+highest-value operator for each garage is common knowledge. This is consistent 
+with the repeated and transparent nature of garage transactions among a small 
+set of firms.
+
+To formally characterize the equilibrium of the garage-chooses-operator game, 
+the payoff for garage $j$ under action $a_j = i$ is the value to operator $i$ 
+net of the transaction price:
+\begin{equation}\label{eq:garageutility}
+U_{j}(a_{j},\mathbf{a}_{-j}) = \Pi_{ij}(\Gamma) - p_{j}^*(\mathbf{a}_{-j})
+\end{equation}
+where we write $p_{j}^*(\mathbf{a}_{-j})$ to make explicit that the 
+equilibrium transaction price depends on the actions of all other garages 
+through their effect on the network $\Gamma$. Since $p_{j}^*(\mathbf{a}_{-j})$ is determined by the second-highest 
+valuation among all operators, the winning operator --- whose dominant 
+strategy in the second-price auction is to bid their true valuation --- 
+takes this price as given and cannot influence it by their own action. 
+The transaction price therefore cancels from the best-response 
+correspondence, and the equilibrium assignment reduces to 
+\begin{equation}\label{eq:garagechoice}
+a_{j}^* = \argmax_{i \in \mathcal{N}} \Pi_{ij}(\Gamma)
+\end{equation}
+so that each garage is assigned to the operator with the highest value 
+for it, and transaction prices need not be observed to estimate the 
+model.\footnote{The cancellation follows from $p_j^*(\mathbf{a}_{-j})$ 
+not varying with $i$ in the maximisation:
+\begin{equation}
+a_j^* = \argmax_{i \in \mathcal{N}} U_j(i, \mathbf{a}_{-j}) 
+= \argmax_{i \in \mathcal{N}} \left[\Pi_{ij}(\Gamma) - p_j^*(\mathbf{a}_{-j})\right] 
+= \argmax_{i \in \mathcal{N}} \Pi_{ij}(\Gamma)
+\end{equation}
+Note that agglomeration benefits make garages potential complements for the same operator, which by \citet[Theorem~4]{Milgrom2000} 
+could preclude the existence of a competitive equilibrium price \emph{vector} 
+across all garages simultaneously. This concern does not arise here because 
+prices are determined bilaterally for each garage via \eqref{eq:eqprice}: 
+existence of $p_j^*$ requires only a well-defined second-highest valuation 
+for each garage, which holds under the maintained assumptions on $\Pi_{ij}$. 
+The same argument applies to bundle transaction prices in Section 
+\ref{sec:seq-bundle}.}
+
+The set of garages choosing an operator is $\mathcal{C}$ (with cardinality 
+$C$). Each garage chooses an operator from the set $\mathcal{N}$ (with 
+cardinality $N$) of active operators, with $a_{j} = i \in \mathcal{N}$ 
+indicating the selected operator. The vector $\mathbf{a} \equiv \{a_{j} : j = 
+1, \dots, C\}$ collects the actions of all garages, and $\mathbf{a}_{-j}$ 
+those of all garages other than $j$. The Nash equilibrium of this game is the 
+$C$-tuple $\mathbf{a}^*$ such that for every garage $j$:
+\begin{equation}\label{eq:garagechoice}
+a_{j}^* = \argmax_{i \in \mathcal{N}} U_{j}(i,\mathbf{a}_{-j}^*)
+\end{equation}
+\sloppy A pure-strategy Nash equilibrium exists when the garage value function 
+$\Pi(\cdot)$ satisfies supermodularity---so that operator $i$ entering 
+garage $j$ increases $i$'s value for all other garages that become closer 
+to its network---and decreasing differences---so that the entry of an 
+additional competitor within proximity of garage $j$ reduces its value to 
+operator $i$. Under these conditions, a pure-strategy Nash equilibrium 
+exists and can be computed via an iterative best-response algorithm 
+\citep{topkis1978minimizing, topkis1979equilibrium}. Multiple equilibria 
+generally exist in entry games of this type 
+\citep[see][]{aguirregabiria2016empirical}. Following \citet{Jia2008} and 
+\citet{nishida2015estimating}, among others, we compare structural estimates 
+across equilibria to assess robustness; details are provided in 
+the next section. 
+
+%{\color{blue} [ taken out from 2.2 -- can now drop all tilde's! work info in before eq 13 ]
+% We specify a functional form that is additive 
+%in observables and a residual error term $\epsilon_{ij}$:
+%\begin{equation}\label{eq:garagevalue}
+%\Pi_{ij}(\Gamma) = f\big(X_{ij},G_{ij};\theta\big) + \epsilon_{ij}
+%\end{equation}
+%}
+
+\subsection{Estimation and identification}\label{SS:estimation}
+ We specify a functional form of the garage utility function that is additive 
+in observables and a residual error term:\footnote{The structural estimates are in units of utility; their monetary 
+interpretation is deferred to Section \ref{S:Counterfactuals}, where we link 
+estimated utility differences to revenues from TfL route procurement contracts.}
+\begin{align}\label{eq:garagevalue_detail}
+\tilde{\Pi}_{ij}(\Gamma) = &\; \underbrace{\theta_1 \text{YearsInc}_{j} + \theta_2 \text{Nonvacant}_i 
++ \theta_3 \text{log(NrGarages)}_i }_{X_{ij}'\theta} \notag \\
+&+ \underbrace{\theta_4 \text{RouteStarts10Min}_{j} + \theta_5 \text{MindurOwnGar}_{ij} 
++ \theta_6 \text{CompGar10Min}_{ij}}_{G_{ij}'\theta} + \epsilon_{ij};
+\end{align}
+where $\theta$ collects the parameters of interest---principally those governing 
+economies of density, local monopoly rents, and incumbency benefits---$X_{ij}$ 
+contains observed characteristics of the garage and operator, and $G_{ij}$ 
+contains network variables describing: the centrality of garage $j$ in the 
+exogenous route network; the centrality of garage $j$ in competitors' garage 
+networks if operator $i$ were to enter; and the centrality of garage $j$ in 
+operator $i$'s own garage network upon entry. The error term $\epsilon_{ij}$ 
+varies randomly across operators and garages. It aggregates idiosyncratic route 
+operation cost draws $\nu_{ijr}$ from \eqref{eq:routecost} across all routes 
+near garage $j$, as well as measurement error arising from the low-dimensional 
+representation ($G$) of the network variables ($\Gamma$). The deterministic part of the garage utility function is denoted 
+$f(\cdot)$. Next, we discuss our main specification; alternative specifications are considered in Section \ref{S:Robustness}.
+
+The variable $\textit{YearsInc}_{j}$ captures \emph{persistence} in 
+this market arising from the multi-year nature of route contracts. The linear 
+specification implies a constant rate of decay in the incumbency advantage 
+over time, with $\theta_1$ measuring the magnitude of this advantage per 
+additional year of tenure. $\textit{Nonvacant}_i$ is an intercept common to all active operators capturing 
+the differential value of the garage plot when used for bus operations relative 
+to alternative uses---that is, the average utility relative to \emph{the 
+market} as outside option. $\log(\textit{NrGarages})_i$ captures potential scale effects in the total number of 
+garages an operator owns, with diminishing returns to garage expansion: each 
+additional garage contributes less to operator utility as the network grows 
+larger. $\textit{RouteStarts10Min}_{j}$ is the number of route endpoints within a 
+10-minute drive from garage $j$, capturing \emph{dead miles}: a higher value 
+implies less empty driving time between the garage and nearby routes, regardless 
+of who operates them. $\textit{MindurOwnGar}_{ij}$ is the minimum drive time 
+between garage $j$ and any other garage owned by operator $i$, capturing 
+\emph{economies of density} net of any business-stealing effects. 
+$\textit{CompGar10Min}_{ij}$ is the number of competing operators' garages 
+within a 10-minute drive from garage $j$, capturing \emph{local monopoly 
+rents}. 
+
+Some garages are not yet developed at the start of the sample in 1995, some 
+remain temporarily vacant, and a few are permanently closed before 2019. To 
+avoid modelling garage development and to reflect the highly constrained London 
+property market, the garage set $\mathcal{J}$ is held constant over time and 
+contains all garages ever in use during the sample period. When a garage is not 
+owned by a bus operator it is assigned to \emph{the market}---the outside 
+option $i=0$, always included in $\mathcal{N}$---representing the garage plot 
+at its alternative use value. Since the level of $\tilde{\Pi}_{ij}$ is not 
+identified, we normalise the mean utility of the outside option to zero and 
+interpret coefficients accordingly.
+
+The estimation strategy compares $\tilde{\Pi}_{ij}(\Gamma)$ across operators 
+$i$ for the same garage $j$, so that garage-specific variables cancel from 
+the choice probabilities and their coefficients are not separately identified. 
+%All coefficients are identified from utility differences relative to the 
+%outside option $i=0$, which represents the garage plot at its alternative use 
+%value to the market. 
+We nonetheless include $\textit{RouteStarts10Min}_{j}$ 
+and $\textit{YearsInc}_{j}$ in \eqref{eq:garagevalue_detail} by normalizing 
+them to zero for the outside option. This normalization rests on two 
+identifying assumptions.
+
+First, the alternative use value of a garage plot does not depend on its 
+proximity to bus routes: a vacant plot repurposed for logistics or light 
+industrial use has no direct need for bus route access. The assumption 
+requires that the market values the plot for its general locational 
+attributes---size, road and rail access, central location---rather than 
+bus proximity specifically. If central plots happen to be close to bus routes 
+and the market values them partly for this reason, $\theta_4$ would be 
+attenuated. Second, the incumbency advantage from tenure is specific to bus 
+operations. Bus-operation-specific investments---tailored maintenance 
+facilities, driver logistics, depot infrastructure---depreciate over time 
+and are of limited relevance to an alternative use of the plot, so that 
+$\textit{YearsInc}_j = 0$ for $i=0$ is appropriate. Under both assumptions, 
+$\theta_4$ and $\theta_1$ are identified from a difference-in-differences 
+argument: each coefficient measures how much more likely a garage is to 
+remain occupied by a bus operator---rather than revert to the market---when 
+it has low dead miles or was recently acquired, relative to what general 
+locational attributes alone would predict. By contrast, garage capacity and transaction prices are garage-specific constants that 
+enter identically for operators and the market alike and are therefore not identified from utility 
+differences in the reversed-choice framework.\footnote{One practical implication is that garage 
+transaction prices need not be observed or estimated to determine the 
+counterfactual network allocation, since they cancel from the equilibrium 
+assignment condition as shown in Section~\ref{SS:entry}. The same goes for garage capacity, although this is observed for two-thirds of the garages. The assumption that capacity is orthogonal to the operator-specific network 
+variables is verified empirically in Appendix~\ref{A:capacity}: regressing 
+capacity on the network variables using garage-level averages across 61 
+garages with available data yields an adjusted $R^2$ of 0.008, and neither 
+\textit{MindurOwnGar} nor \textit{CompGar10Min} are significantly 
+correlated with capacity.}
+
+A remaining concern is whether unobserved garage-level characteristics could 
+bias the network variable estimates. The identifying assumption is that, 
+conditional on the observed network variables, any remaining unobserved 
+heterogeneity across garage locations is uncorrelated with the 
+operator-specific regressors.\footnote{This assumption is non-trivial: 
+the historical bus depots privatized in 1994 were not randomly located, 
+potentially creating a correlation between unobserved site quality and 
+the observed network variables. However, the severe building constraints 
+in central London mean that garages are highly immobile, so that unobserved 
+site characteristics are largely absorbed by the stable geographic features 
+of the network directly captured by the included variables. The identifying 
+assumption is therefore that conditional on route density, competitor 
+proximity, and own-network centrality, no systematic unobserved 
+heterogeneity remains.}
+
+We verify empirically that the garage value function $\tilde{\Pi}(\cdot)$ satisfies supermodularity, confirming that the maintained assumptions for existence of a pure-strategy Nash equilibrium are consistent with the data ($\hat{\theta}_5 \leq 0$ and $\hat{\theta}_6 \leq 0$ as documented in Table~\ref{T:strucestim}). Our approach exploits the exclusivity of garage use and the temporal structure of our data by estimating on observed ownership \emph{transitions} rather than the full cross-sectional network, varying the number of garages assumed to choose operators simultaneously as a robustness check on equilibrium selection.
+
+
+\subsubsection{Sequential discrete choice}\label{sec:seq-choice}
+We now re-introduce the time dimension and use $t$ subscripts where variables 
+are time-varying. In the vast majority of cases only one garage changes 
+ownership at a given changedate (Table~\ref{T:garagechangedates}); we 
+therefore first estimate the model under a sequential discrete choice 
+framework with myopic decision-makers, treating each ownership change as an 
+independent event. Cases where multiple garages change owner on the same 
+changedate are treated as sequential draws from the same choice set, ordered 
+as observed in the data. The observed garage ownership vector at each point 
+in time is interpreted as a Nash equilibrium of the garage-chooses-operator 
+game: conditional on the rest of the network remaining fixed, no garage has 
+a profitable unilateral deviation to a different operator. This is the natural 
+equilibrium concept for a static game, and is satisfied by construction when 
+each garage is assigned to its highest-value operator given the observed 
+assignments of all other garages.\footnote{In other words, when garage $j$ selects an operator at time 
+$t$ according to \eqref{eq:garagechoice}, it conditions on the observed state 
+of the network at that point ($\Gamma_t \equiv \mathbf{a}_{-jt}$).}
+
+Adding the distributional assumption $\epsilon_{ijt} \overset{i.i.d.}{\sim} 
+F_{\epsilon}(0,\sigma)$,\footnote{The location normalization $\mu = 0$ is without 
+loss of generality: since $\epsilon_{ijt}$ is drawn i.i.d.\ from 
+$F_{\epsilon}(\mu,\sigma)$ for all $i \in \mathcal{N}_t$ including the vacant 
+option $i=0$, a common location $\mu$ cancels from every utility difference that 
+determines choices and is therefore unidentified. This is distinct from the normalization 
+of the vacant option's deterministic utility to zero, which pins down the level of 
+$f(\cdot)$ and identifies the non-vacant intercept in $X$.} the choice 
+probability for garage $j$ selecting operator $i$ at time $t$ is
+%
+\begin{align}\label{eq:choiceprob-general}
+P_{ijt}(\theta) 
+&= \Pr\!\Big(f(X_{ijt},G_{ijt};\theta) + \epsilon_{ijt} 
+  \geq f(X_{hjt},G_{hjt};\theta) + \epsilon_{hjt} 
+  \quad \forall\, h \in \mathcal{N}_t\Big) \\
+&= \int \mathbf{1}\!\Big[f(X_{ijt},G_{ijt};\theta) + \epsilon_{ijt} 
+  \geq f(X_{hjt},G_{hjt};\theta) + \epsilon_{hjt} 
+  \quad \forall\, h \in \mathcal{N}_t\Big]\, dF_{\epsilon} \notag
+\end{align}
+where $\mathcal{N}_t$ is the set of active operators with at least one garage in the 
+market at time $t$, always including the vacant choice $i=0$. By standard arguments, for any fixed $(X_t, G_t, \theta)$, the utility-maximising 
+choice is unique with probability one, %\footnote{A tie between alternatives $i$ and $h$ requires 
+%the error difference $\epsilon_{ijt} - \epsilon_{hjt}$ to equal the fixed 
+%scalar $d_{ijht} \equiv f(X_{hjt},G_{hjt};\theta) - f(X_{ijt},G_{ijt};\theta)$. 
+%Under any atomless $F_{\epsilon}$, the difference $\epsilon_{ijt} - 
+%\epsilon_{hjt}$ has a continuous distribution, so 
+%$\Pr(\epsilon_{ijt} - \epsilon_{hjt} = d_{ijht}) = 0$ for each $h \neq i$. 
+%Since $|\mathcal{N}_t| < \infty$, a finite union of probability-zero events has probability 
+%zero, and the maximiser is therefore unique with probability one.}
+establishing uniqueness of garage-operator matches nonparametrically under mild conditions on $F_{\epsilon}$. When further specifying $F_{\epsilon}$ to be the standardized Type~I extreme value distribution --- which satisfies the conditions for uniqueness by being continuous 
+and hence atomless ---, as we do in estimation, the integral in \eqref{eq:choiceprob-general} reduces to the 
+\citet{mcfadden1984econometric} closed form:
+\begin{align}\label{eq:entryprob}
+P_{ijt}(\theta) = \frac{\exp\!\Big(f(X_{ijt},G_{ijt};\theta)\Big)}
+{\sum_{h \in \mathcal{N}_t} \exp\!\Big(f(X_{hjt},G_{hjt};\theta)\Big)}
+\end{align}
+The logit functional form 
+sets the scale parameter of $\epsilon$ to one, fixing the implied error variance 
+at $\pi^2/6$, so estimated coefficients are scaled by $\sqrt{\pi^2/6}/\sigma$ relative 
+to the true utility coefficients, where $\sigma$ is the standard deviation of the true 
+unexplained component. The finite-dimensional parameter vector $\theta$ is estimated by 
+maximum likelihood, using the observed identity of the operator entering each garage at 
+each changedate and the network variables at that date.
+
+The estimation strategy requires that the event of an ownership change is 
+independent of $f(\cdot)$ conditional on the observables. This would be violated if firms make forward-looking entry 
+decisions, for instance entering a location even at a short-run loss to 
+preempt future competitor expansion in, e.g., \citep{goolsbee2008incumbents, zheng2016spatial}. While we account for a firm's tenure 
+at a garage through the incumbency variable, abstracting from such dynamics 
+is a limitation of the static framework, common to the entry literature more 
+broadly \citep{Jia2008, ellickson2013estimating, nishida2015estimating}.\footnote{
+\cite{Holmes2011} estimates a dynamic game with agglomeration effects for 
+a single chain-store rollout.}
+
+\subsubsection{Sequential bundled choice}\label{sec:seq-bundle}
+As a robustness check that relaxes the purely static timing assumption, we 
+also estimate the model based on the utility of \emph{bundles} of two 
+consecutive ownership changes. The bundle framework is the natural first 
+extension toward dynamics: by treating two sequential garage transactions as 
+a joint decision, the entry of the first operator internalizes its 
+consequences for the subsequent transaction, mimicking a one-step-ahead 
+lookahead. Extending this to three or more steps is computationally 
+prohibitive---the number of bundle combinations grows from 1,841 under 
+sequential choice to 33,513 under two-step bundling---so we treat the 
+two-step bundle as a tractable approximation. Comparing $\theta$ and 
+$\theta^B$ serves as a diagnostic: if the spatial rent estimates are stable 
+across the two specifications, this supports the static framework as a valid 
+simplification; it would indicate longer planning horizons.
+
+Let $B=\{(i_1,j_1),(i_2,j_2)\}$ denote the bundle in which operator $i_1$ 
+enters garage $j_1$ and, in the subsequent transaction, operator $i_2$ enters 
+garage $j_2$. Here $i_1$ and $i_2$ may be the same operator entering different 
+garages in sequence; $j_1$ and $j_2$ may coincide only if $i_1 \neq i_2$, 
+since exclusivity precludes the same operator entering the same garage twice 
+consecutively. %When three or more garages change hands on the same changedate, 
+%we form bundles from the first two and treat any additional changes as 
+%independent sequential events.
+
+The value of bundle $B$ is the average of the deterministic utility when $i_1$ 
+enters $j_1$ and the deterministic utility when $i_2$ enters $j_2$ 
+\emph{conditional on $i_1$ having entered $j_1$}, plus a bundle-specific 
+unobservable $\epsilon^B \sim^{i.i.d.} F_{\epsilon^B}(0,\sigma^B)$:
+\begin{align}\label{eq:garagevalue_detail_bundle}
+\tilde{\Pi}^B(\Gamma) =\; &\theta_1^B \big( \text{YearsInc}_{j_1}+ 
+  \text{YearsInc}_{j_2}\big)/2 \notag \\
++\; &\theta_2^B \big(\text{Nonvacant}_{i_1} + \text{Nonvacant}_{i_2}\big)/2 \notag \\
++\; &\theta_3^B \big(\text{log(NrGarages)}_{i_1} + \text{log(NrGarages)}_{i_2}(i_1)\big)/2 \notag \\
++\; &\theta_4^B \big(\text{RouteStarts10Min}_{j_1} + 
+    \text{RouteStarts10Min}_{j_2}\big)/2 \notag \\
++\; &\theta_5^B \big(\text{MindurOwnGar}_{i_1 j_1} + 
+    \text{MindurOwnGar}_{i_2 j_2}(i_1 j_1)\big)/2 \notag \\
++\; &\theta_6^B \big(\text{CompGar10Min}_{i_1 j_1} + 
+    \text{CompGar10Min}_{i_2 j_2}(i_1 j_1)\big)/2 + \epsilon^B
+\end{align}
+Three network variables are evaluated conditional on $i_1$ entering $j_1$: 
+$\textit{MindurOwnGar}_{i_2 j_2}(i_1 j_1)$ is the minimum drive time between 
+$j_2$ and any garage of operator $i_2$ given $i_1$'s entry; 
+$\textit{CompGar10Min}_{i_2 j_2}(i_1 j_1)$ is the number of competing garages 
+within 10 minutes of $j_2$ for operator $i_2$ given $i_1$'s entry; and 
+$\textit{log(NrGarages)}_{i_2}(i_1)$ is the natural logarithm of the number of garages of operator $i_2$ 
+other than $j_2$, given $i_1$'s entry. The $\textit{Nonvacant}$ terms enter 
+additively and are set to zero for the outside option $i=0$, so the bundle 
+intercept equals $\theta_2^B$ when both garages are assigned to active 
+operators, $\theta_2^B/ 2$ when one is assigned to an active operator and the 
+other to the market, and zero when both are vacant---the outside option bundle. 
+As above, all remaining variables are set to zero for the outside option bundle. The bundle choice 
+probability is
+\begin{align}\label{eq:entryprob-bundle}
+P_{Bt}(\theta^B) = \frac{\exp\!\Big(f(X_{B},\Gamma_{B};\theta^B)\Big)}
+{\sum_{c \in \mathcal{B}_t} \exp\!\Big(f(X_{c},\Gamma_{c};\theta^B)\Big)}
+\end{align}
+where $\mathcal{B}_t$ collects all possible bundles $(i_1,i_2) \in 
+\mathcal{N}_t \times \mathcal{N}_t$ (with replacement), with $j_1$ fixed 
+as the garage changing ownership at $t$ and $j_2$ as the next garage to 
+transact. 
+
+\florian{here we don't agree. a logit model with 2000 choice situations and one with 30000 has \emph{the same error variance}. What changes is the logsum (the expected value of the represented market, much higher in the 30K case). Again, comparing ratios of coefs may still make sense because our explanatory variables are different, but the argument cannot come from the error variance.}
+Even if firms make only single-garage decisions throughout the sample, the bundle 
+estimates $\theta^B$ may differ from $\theta$ in levels due to differences 
+in the implied error variance $\sigma \neq \sigma^B$, which scales the population coefficients. % by 
+%$\sqrt{\pi^2/6}/\sigma$ with $\sigma$ specific to each model. 
+Since this 
+scaling is common to all coefficients within a model, ratios of coefficients 
+--- and hence the implied trade-offs between spatial rent determinants --- 
+are scale-invariant and directly comparable across the two specifications. 
+We therefore assess robustness by comparing these implied trade-offs rather 
+than coefficient levels, using the same marginal rate of substitution 
+between own and competitor garage proximity that is our main object of 
+interest in Section~\ref{S:Results}.
+
+
+\begin{table}[!tb]
+% \centering
+\caption{Summary statistics, location choice model}
+\label{T:logitvars}
+\begin{adjustbox}{max width = \textwidth, center}
+	\input{\tables/logit-data-summary.tex}
+\end{adjustbox}
+\newline
+\fnote{Summary statistics for variables used in the garage-operator utility model in equation \eqref{eq:garagevalue_detail} (top panel), for additional variables including alternative distance measures (middle panel), and for other characterizations of the discrete choice model (bottom panel). The top two panels are based on all 1,649 observations (ijt) in the estimation sample where the garage is non-vacant (e.g., applying to all active operators, $ i\neq 0$) and the summary statistics for the variables ``Alternative is selected" and ``Garage is not vacant" in the bottom panel are based on the full estimation sample of 1,841 observations, including $i=0$. The variables capturing economies of density are 0 when the operator has only one garage.}
+\end{table}
+
+
+\section{Estimation results}\label{S:Results}
+This section presents the estimation results of the \emph{garages choose operators} 
+model introduced in Section~\ref{sec:seq-choice}, under the assumption that 
+when a garage changes ownership, the entrant is the operator with the highest 
+utility for that garage among all active operators at that time.
+
+\subsection{Baseline estimates}
+The main estimation results are presented in Table~\ref{T:strucestim}. We 
+discuss each component of the garage utility function in turn based on the 
+baseline sequential estimates, before turning to a comparison with the bundle 
+estimates in Section~\ref{sec:bundle-results}.
+
+\paragraph{Incumbency benefit.} The coefficient on $\textit{YearsInc}$---the 
+number of years the incumbent has been in the garage---is positive and 
+significant ($\hat{\theta}_1 = 0.121$, s.e. $0.040$, $p<0.01$). The linear 
+specification implies a constant rate of accumulation of incumbency advantage 
+over time: each additional year of tenure increases the incumbent's utility 
+for the garage at a constant rate, reflecting the gradual build-up of 
+garage-specific investments and operational logistics that are costly for a 
+new operator to replicate.\footnote{An alternative parameterization using 
+$\exp(-\textit{YearsInc}_j)$ is arguably more naturally motivated by the five-year 
+contract structure: if an operator enters a garage to serve one or more 
+contracts immediately after winning, the incumbency advantage would be 
+highest at entry and decay toward zero over the contract duration. However, 
+the robustness checks in Section~\ref{SS:robust-inc} show that the linear 
+specification fits the data better. This may reflect the staggered nature 
+of route contracts---whereby an incumbent simultaneously holds contracts at 
+different stages of their duration---so that the garage retains residual 
+value throughout the tenure rather than only at the start.}
+
+\paragraph{Alternative market usage.} Active operators have significantly 
+higher mean utility for a garage than the outside option ($\hat{\theta}_2 
+= 1.886$, s.e. $0.529$, $p<0.001$), confirming that bus operators value 
+garages substantially more than their alternative use value, consistent 
+with the garage being a productive asset specifically tied to TfL route 
+procurement.
+
+
+\paragraph{Scale effects.} The coefficient on $\log(\textit{NrGarages})$---the 
+log of the total number of garages operated by the firm---is negative and 
+highly significant ($\hat{\theta}_3 = -1.135$, s.e. $0.124$, $p<0.001$). 
+The logarithmic specification implies diminishing returns to garage expansion: 
+each additional garage contributes less to operator utility as the network 
+grows larger. Conditional on network centrality and competitor proximity, 
+larger operators derive less marginal utility from an additional garage, 
+consistent with firms having fewer uncovered routes to serve from a new 
+garage as their network becomes denser.\footnote{The logarithmic specification fits the data better than a linear 
+specification in levels, as shown in the robustness checks of 
+Section~\ref{SS:robust-inc}.}
+
+
+\paragraph{Dead miles.} The coefficient on $\textit{RouteStarts10Min}$---the 
+number of route endpoints within a 10-minute drive---is positive as expected 
+but statistically insignificant in the baseline specification 
+($\hat{\theta}_4 = 0.030$, s.e. $0.028$). This is consistent with the 
+reduced-form evidence in Section~\ref{S:TfL}, where the dead miles 
+coefficient was similarly attenuated once strategic network controls were 
+included. In the baseline, the dead miles variable may be partially collinear 
+with the non-vacancy intercept, both of which partly reflect garage centrality 
+in the route network. The bundle model, by internalizing the network 
+consequences of sequential entry, provides better identification of this 
+component: the bundle estimate is large and highly significant 
+($\hat{\theta}_4^B = 0.161$, s.e. $0.023$, $p<0.001$). We therefore treat the 
+baseline estimate as a conservative lower bound on the true dead miles 
+effect while noting that both specifications agree on the sign and that the 
+dead miles coefficient does not affect the robustness of the other spatial 
+rent estimates, which are stable across both specifications.
+
+\paragraph{Economies of density.} The coefficient on 
+$\textit{MindurOwnGar}$---the minimum drive time to the operator's nearest 
+own garage---is negative and highly significant ($\hat{\theta}_5 = -0.091$, 
+s.e. $0.010$, $p<0.001$). Garages are more valuable when they are closer to 
+the operator's existing network, confirming the presence of agglomeration 
+benefits. These provide a cost-based rationale for the observed spatial 
+clustering of operators in certain parts of London.
+
+\paragraph{Local monopoly rents.} The coefficient on 
+$\textit{CompGar10Min}$---the number of competitor garages within a 
+10-minute drive---is negative and significant ($\hat{\theta}_6 = -0.334$, 
+s.e. $0.110$, $p<0.05$). Garages are less valuable when surrounded by 
+competitor garages, consistent with the local monopoly rent mechanism: 
+proximity of rivals compresses equilibrium mark-ups in route auctions, 
+reducing the expected profit from operating routes nearby. To quantify the relative importance of economies of density and local 
+monopoly rents, we compare the ratio $|\hat{\theta}_6|/|\hat{\theta}_5| 
+= 3.7$, which gives the reduction in minimum own-garage drive time (in 
+minutes) that offsets one additional competitor garage within 10 minutes. 
+
+
+
+\begin{table}[!tb]
+\centering
+\caption{Structural estimates of garage-operator utility parameters}\label{T:strucestim}
+\begin{adjustbox}{max width = 0.9\textwidth}
+	\input{\tables/L-paper-preferred-model.tex}
+\end{adjustbox}\fnote{Statistical significance: + p $<$ 0.1, * p $<$ 0.05, ** p $<$ 0.01, *** p $<$ 0.001. The column ``baseline" contains the structural estimates from the sequential single-move discrete choice model based on equation \eqref{eq:garagevalue_detail}. The column ``bundle"  contains the model estimates when bundles of two garages and operators are chosen sequentially, based on the utility function in equation \eqref{eq:garagevalue_detail_bundle}.} \end{table}
+
+\begin{table}[!tb]
+\centering
+\caption{Testing structural estimate equality across baseline and bundle specifications}\label{T:deltamethod}
+\begin{adjustbox}{max width = \textwidth}
+	\input{\tables/delta-method.tex}\end{adjustbox}
+\fnote{Ratios between the coefficients on the listed variable 
+to the coefficient on $\textit{CompGar10Min}$ in the relevant specifications reported in Table~\ref{T:strucestim}. 
+Ratios are scale-invariant and directly comparable across specifications 
+despite differences in implicit error variance $\sigma$. The $p$-value is 
+from a two-sided $z$-test of equality of the two ratios, as defined in 
+\eqref{eq:deltamethod}, with standard errors obtained via the delta method \citep{greene2012econometric}
+applied to the respective maximum likelihood covariance matrices.}\end{table}
+
+
+\subsection{Bundle choice estimates}\label{sec:bundle-results}
+As discussed in Section~\ref{sec:seq-bundle}, the bundle model allows 
+operators to internalize the network consequences of sequential entry, 
+providing a robustness check on the static baseline. Since the two 
+specifications differ in their implicit error variance $\sigma$, coefficient 
+levels are not directly comparable across columns. We therefore assess 
+robustness by comparing coefficient ratios relative to $\hat{\theta}_6$ 
+(the competitor garage coefficient), as such ratios are scale-invariant and directly 
+interpretable as trade-offs between garage value determinants.
+
+To formally test whether these ratios differ across specifications, we apply 
+the delta method to obtain standard errors  \citep{greene2012econometric} for each ratio within each model 
+and construct a $z$-test of equality exploiting the independence of the two 
+estimators:
+\begin{equation}\label{eq:deltamethod}
+z_k = \frac{\hat{\theta}_k/\hat{\theta}_6 - \hat{\theta}_k^B/\hat{\theta}_6^B}
+{\sqrt{\widehat{\text{Var}}(\hat{\theta}_k/\hat{\theta}_6) + 
+\widehat{\text{Var}}(\hat{\theta}_k^B/\hat{\theta}_6^B)}}
+\end{equation}
+for $k=1:5$. Variances are obtained via the delta method applied to the respective 
+maximum likelihood covariance matrices. The results are reported in 
+Table~\ref{T:deltamethod}.
+
+The test fails to reject equality for four of the five coefficients, 
+including the key trade-off between economies of density and local monopoly 
+rents ($\hat{\theta}_5/\hat{\theta}_6$: baseline $0.273$, bundle $0.282$, 
+$p=0.945$). This is the primary object of interest---the number of minutes 
+of own-garage proximity that offsets one additional competitor garage---and 
+its near-identical value across specifications provides strong support for 
+the baseline estimates. Scale effects and the incumbency benefit are likewise 
+statistically indistinguishable across models ($p=0.846$ and $p=0.688$ 
+respectively). The one ratio that does differ significantly across 
+specifications is that of dead miles ($p=0.019$): the bundle estimate of 
+$\textit{RouteStarts10Min}$ is large and significant (Table~\ref{T:strucestim}) 
+while the baseline is not, so the ratio to \textit{CompGar10Min} is roughly 
+four times larger in the bundle model. As discussed above, this reflects 
+better identification of the dead miles component in the bundle model rather 
+than instability in the spatial rent estimates. Importantly, this difference 
+does not affect the robustness of the primary findings: local monopoly rents 
+and economies of density---the main drivers of the counterfactual analysis---are stable across both specifications.
+
+Taken together, these results support the static sequential framework as a valid 
+simplification for the purpose of identifying the spatial rents in this environment. Extending the planning horizon from one to two steps does 
+not materially alter the picture of how spatial positioning drives garage 
+value in this market. At the same time, we cannot rule out that alternative 
+bundling structures---for instance, non-sequential bundles or three-step 
+lookaheads--would yield different estimates, particularly for the dead miles 
+component where the two specifications do differ. What the comparison does 
+establish is that a parsimonious static model without prices or explicit 
+dynamics is able to recover stable and economically interpretable estimates 
+of the two central forces---agglomeration benefits and local monopoly 
+rents---that theory predicts should govern location choice in markets with 
+spatial competition. 
+
+\subsection{Model fit} 
+Multinomial choice models do not admit a single summary fit statistic 
+analogous to $R^2$. We therefore assess fit using the mean Area Under 
+the ROC Curve (AUC), averaged across operators using a one-vs-all 
+classification scheme and weighted by operator frequency in the 
+sample.\footnote{The AUC measures the probability that the model assigns 
+a higher predicted probability to the true entrant than to a randomly 
+drawn non-entrant, ranging from 0.5 (random assignment) to 1 (perfect 
+discrimination). In the multinomial setting we compute one ROC curve per 
+operator under a one-vs-all scheme and report the frequency-weighted 
+average following \cite{provost2003tree}.} The baseline model achieves 
+a mean AUC of 0.868 and a McFadden pseudo-$R^2$ of 0.554; the bundle 
+model achieves an AUC of 0.875 with a pseudo-$R^2$ of 0.422, the lower 
+value reflecting the much larger choice set rather than worse 
+fit.\footnote{McFadden pseudo-$R^2$ values of 0.2--0.4 are conventionally 
+considered to indicate excellent fit, substantially exceeding the threshold 
+for OLS regressions of the same magnitude \citep{domencich1975urban}. The 
+baseline value of 0.554 is therefore exceptional for a model with only five 
+network variables.} The AUC metric, which is robust to the number of 
+alternatives, confirms that both specifications have strong discriminatory 
+power and that the key spatial rent parameters are stable across estimation 
+approaches. The model correctly identifies the highest-utility operator in 
+50.5 percent of all choice situations, out of an average of 10.75 alternatives 
+per situation---a substantial improvement over random assignment.
+
+Figure~\ref{F:frequencies} compares in-sample predicted and observed entry 
+frequencies, computed as the model-implied average probability that each 
+operator is selected across all choice situations against the observed share 
+of ownership changes in which that operator entered a garage. The model 
+tracks individual operator entry patterns closely across the distribution. 
+The main discrepancy is an over-prediction of vacancy: the model assigns 
+garages to the outside option in 38.5 percent of cases against 26.0 percent 
+in the data. This reflects the difficulty of capturing the timing of garage closures and 
+developments, which often occur for reasons exogenous to bus operations, and 
+supports the modelling choice to treat the set of garages as the fixed outer 
+set of ever-occupied plots rather than modelling entry and exit of garage 
+infrastructure explicitly.
+
+A second discrepancy highlighted in Figure~\ref{F:frequencies} is that the model under-predicts entry probabilities 
+for Arriva and Go-Ahead. This follows mechanically from the estimated 
+diseconomies of scale in $\log(\textit{NrGarages})$ combined with these 
+operators' large garage holdings (Figure~\ref{fig:garages-TS-byoperator}): 
+conditional on network centrality and competitor proximity, the model 
+assigns low marginal value to further expansion by already large operators. 
+Appendix~\ref{A:collusion} explores a complementary explanation, motivated 
+by the UK Competition Commission's concerns about geographic market 
+segregation in the London bus market: whether unrealized garage transactions 
+that the model predicts to be profitable are consistent with a collusive 
+market-sharing interpretation. The most robust finding is that implied 
+punishment values (under this interpretation) are systematically larger for garages that are more 
+spatially isolated from competitor networks, directly connecting the pattern 
+of unrealized transactions to the local monopoly rent estimates in 
+Table~\ref{T:strucestim}. Results relating punishment values to the number 
+of active firms are sensitive to specification; we therefore stop short of 
+claiming unequivocal evidence of collusion and refer the reader to 
+Appendix~\ref{A:collusion} for full details.\footnote{It is worth recalling that the spatial rent estimates are 
+identified entirely from observed ownership transitions, without using 
+procurement bid data, and are agnostic about competitive conduct at the 
+auction stage. The only assumption required is that transactions that do 
+take place allocate garages to the operator that values them most---the 
+model makes no use of information about transactions that did not occur.} Here, we simply conclude that the spatial rent model fits the observed network changes remarkably well given its parsimony, without explaining specific operator-specific deviations from 
+its predictions.
+
+\subsection{Alternative specifications}\label{S:Robustness}
+We assess the robustness of the baseline estimates to alternative 
+specifications of the distance measures, the incumbency variable, and 
+the scale effect.
+
+\subsubsection{Alternative distance measures}\label{SS:robust-dist}
+
+Appendix Table~\ref{T:robustness_dist} reports estimates under alternative 
+specifications of the three distance components; we discuss each substitution 
+in turn. Replacing \textit{RouteStarts10Min} with stopover-based dead mile 
+measures leaves all spatial rent estimates unchanged and the stopover 
+coefficients themselves are insignificant, confirming that the dead miles 
+attenuation in the baseline is not specific to the start-stop measure. 
+Replacing \textit{MindurOwnGar} with the average drive time to own garages 
+yields a stable local monopoly rent coefficient but a much larger trade-off 
+ratio (9.9 vs. 3.7 in the baseline) and lower fit (AUC 0.844 vs. 0.868), 
+reflecting the different scaling of the average relative to the minimum and 
+confirming the minimum as the preferred summary of agglomeration benefits. 
+Replacing \textit{CompGar10Min} with continuous drive-time measures yields 
+insignificant competitor distance coefficients, suggesting that the count 
+of nearby rivals is more informative than their average distance. The 
+baseline specification compares favorably on all fit metrics and the core 
+spatial rent estimates are robust to the choice of distance measure.
+
+\subsubsection{Alternative incumbency and scale 
+specifications}\label{SS:robust-inc}
+
+Appendix Table~\ref{T:robustness_other} reports estimates under alternative 
+specifications of the incumbency and scale variables. Replacing the linear 
+incumbency term with the exponential form $\exp(-\textit{YearsInc})$ yields 
+an insignificant coefficient and lower fit, confirming the preference for 
+the linear specification. Omitting incumbency entirely leaves the spatial 
+rent estimates and fit virtually unchanged, confirming that the incumbency 
+specification does not drive the primary findings. Replacing 
+$\log(\textit{NrGarages})$ with \textit{NrGarages} in levels reduces fit 
+noticeably while leaving the trade-off ratio stable; omitting the scale 
+variable entirely reduces fit further without materially affecting the 
+spatial rent estimates. Omitting the \textit{Nonvacant} intercept restores 
+significance of the dead miles coefficient, further supporting the 
+collinearity argument in Section~\ref{S:Results}. Throughout, the 
+trade-off ratio between economies of density and local monopoly rents 
+ranges from 3.1 to 4.7, and the core finding that these two forces are 
+the primary determinants of garage value is robust across all alternative 
+specifications considered.
+
+
+\section{Counterfactuals: implications for urban planning}\label{S:Counterfactuals}
+The structural estimates link garage value directly to spatial positioning 
+in the network of routes and competing garages. We exploit this to assess 
+two urban planning questions: where in London would new garage infrastructure 
+generate the most private value to operators, and where are capacity constraints on existing 
+garages most binding? The first question is addressed descriptively using 
+the estimated spatial rent surface across candidate locations; the second 
+requires the bus-garage assignment equation, which we validate against 
+observed tender data before applying it to the capacity expansion 
+counterfactuals. 
+
+\subsection{Network quality of candidate garage locations}\label{SS:UP3}
+For each point $\ell$ on a 500-metre resolution grid covering Greater London, 
+we compute the three spatial rent components of the reduced-form garage utility 
+function \eqref{eq:garagevalue_detail} as if a new garage were located at 
+$\ell$.\footnote{These are the number of route endpoints within a 10-minute drive, the minimum drive time from $\ell$ to the 
+nearest existing garage of each operator $i$, 
+and the number of competitor garages within a 10-minute drive of $\ell$. Drive times are computed using the OSRM 
+routing engine on the London road network.} For each candidate location $\ell$ 
+and each operator $i$, we then evaluate $\hat{\Pi}_{i\ell}(\Gamma_{-\ell})$ using the 
+baseline structural estimates, excluding any garages situated inside the 500 m$^2$ area $\ell$ but holding the rest of the 2019 garage-operator 
+network $\Gamma$ fixed. We also determine the highest-value operator at each location, as \footnote{In what follows, $\hat{\Pi}$ denotes the estimated deterministic garage utility given our baseline estimates.}
+$$i^*(\ell) = \argmax_i \hat{\Pi}_{i\ell}(\Gamma_{-\ell})$$
+This exercise is purely 
+descriptive: it identifies where in London the marginal value of additional 
+operating capacity is largest for each operator, based on the spatial 
+positioning of candidate locations relative to routes and existing garages. 
+It does not use the bus-garage assignment in equation \eqref{eq:assignment_buses} and abstracts from garage 
+capacity---questions we take up in Sections~\ref{SS:urbanpolicy1}--\ref{SS:likecompanion}.\footnote{Incorporating bus-garage assignment can address issues like the possibility that a garage in an otherwise 
+unserved area could generate stand-alone value by accessing routes not 
+currently viable from existing garages.} Figure~\ref{F:urban3_operator} presents the two complementary views of the 
+spatial rent surface. Panel (a) shows the overall \emph{private} value of 
+releasing land for garage development at each candidate location, 
+independently of which operator would benefit. Rather than a clear geographic 
+gradient, the surface reveals many dispersed high-value pockets scattered 
+across London, reflecting that the 2019 garage network is broadly 
+well-positioned relative to the route network---each operator has already 
+claimed the most valuable nearby locations, leaving isolated pockets of 
+residual private value where the network remains sparse. The northeast is 
+the main exception, where a larger contiguous area of higher private value 
+suggests that garage coverage is genuinely underprovided relative to the 
+density of the route network there. 
+
+Panel (b) maps $i^*(\ell)$, the highest-value operator at each location. 
+The spatial segmentation is clean and contiguous: Stagecoach dominates large areas in the south and south-east, Abellio the north-west, and smaller operators 
+occupy distinct central territories. Most existing garages lie within their 
+own operator's preferred region, confirming that the current network broadly 
+reflects spatial rent optimization. %The main exception is the large northern 
+%region attributed to HCT, one of the smallest operators, rather than Arriva, 
+%whose garages are closest to this area. This directly reflects the 
+%diseconomies of scale in the number of garages: large operators derive less 
+%marginal utility from additional capacity, so the map should be read as 
+%showing where extra capacity would benefit each operator most given their 
+%current network, not where absolute garage value is highest.
+At a high level, the results reveals where operators would 
+have the strongest incentive to lobby for the release of industrial land or 
+planning permissions for new garage development, with the northeast emerging 
+as the area where private returns to new garage infrastructure would be 
+largest.\footnote{The underlying geography is relevant: this area is situated in the middle of large stretches of \href{https://apps.london.gov.uk/planning/}{designated open space}, protected against development.}
+%the garage placed at the center of the high value area is (\florian{find garage name}), in the Loughton, bordering to the left with the large Epping Forest - a natural reserve protected from development.
+
+\begin{figure}[!tb]
+\caption{Network quality surface for new garage locations\label{F:urban3_operator}}
+\begin{subfigure}[b]{0.49\textwidth}
+    \includegraphics[width=\textwidth]{\plots/urban3-value-heatmap.pdf}
+    \caption{Location value surface}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.49\textwidth}
+    \includegraphics[width=\textwidth]{\plots/urban3-operator-heatmap.pdf}
+    \caption{Optimal entering operator}
+\end{subfigure}
+\fnote{Panel (a) shows the highest 
+predicted utility across all operators on 
+a 500-metre grid, reflecting the overall value of releasing land for garage 
+development at that location. Panel (b) 
+shows the operator that 
+would benefit most from a new garage at each location. Dots mark 
+existing 2019 garages. Both panels are evaluated using the 2019 
+garage-operator network $\Gamma$ and reflect pure network position value, 
+abstracting from garage capacity and bus-garage assignment.}
+\end{figure}
+
+\subsection{Private returns to garage capacity expansion}\label{SS:UP1}
+\label{SS:urbanpolicy1}
+This section quantifies the returns to expanding capacity at existing garages with 50 buses, which is approximately half of the mean (and median) capacity in the data and asks how much private profit the
+owning operator would gain. The answer combines two components, each capturing
+a distinct channel through which additional bus capacity creates value. 
+
+The first channel is the \emph{structural term}. The structural model assigns
+each garage a deterministic valuation $\hat{\Pi}_{ij}$ that reflects the
+garage's position in the operator's network: its proximity to own and
+competitor garages, the density of nearby route starts, and the operator's
+incumbency. Under the assumption of constant returns to scale in capacity
+(motivated in Appendix~\ref{A:capacity}), dividing $\hat{\Pi}_{ij}$ by the
+number of buses currently stationed at the garage, $B_{jt}$, yields a
+per-bus valuation $\hat{\pi}_{ij}^{bus} = \hat{\Pi}_{ij}/B_{jt}$. Multiplying
+by the number of additional buses drawn into the garage and converting to
+monetary units via the implied TfL auction revenue per utility unit
+$\kappa = \text{\textsterling}1.23\text{m}$, gives the structural component of
+the return to expansion.
+
+The second channel is the \emph{dead miles correction}. The structural model
+is estimated at the garage level and does not observe which specific routes are
+assigned to which garage; the variable $\mathit{RouteStarts10Min}$ captures
+route proximity only through a binary ten-minute threshold. When capacity
+expands, the assignment technology of equation~\eqref{eq:assignment_buses}
+predicts which additional routes get stationed at the garage: buses are added
+in order of route proximity until 50 extra buses are absorbed. These marginal
+routes need not have the same dead-mile profile as the routes already assigned
+to the garage. If marginal routes are closer than the baseline average, the
+operator saves on empty driving; if they are further, costs rise. The
+dead miles correction accounts for this difference by comparing the
+dead-mile cost of each marginal route $m'$ to the PVR-weighted average dead
+miles of routes already stationed at the garage, $\overline{DM}_j$, and
+scaling by the estimated dead-mile penalty
+$\hat{\beta} = -\text{\textsterling}19{,}000$ per additional dead mile driven
+(from Section~\ref{S:TfL}). Since $\hat\beta < 0$, the correction is negative
+whenever marginal routes are further away than the baseline average
+($(DM_j(m') - \overline{DM}_j) > 0$), and positive when they are closer.
+
+Combined, the private return to operator $i$ from adding
+50 buses to garage $j$ is:
+%
+\begin{equation}\label{eq:UP1}
+  \Delta\hat{\Pi}_{ij}(+50\text{ buses}) =
+  \underbrace{%
+    \sum_{m' \in \mathcal{M}_j}
+    \Delta b_j(m') \cdot \hat{\pi}_{ij}^{bus} \cdot \kappa
+  }_{\text{structural term}}
+  +
+  \underbrace{%
+    \hat{\beta} \cdot \sum_{m' \in \mathcal{M}_j} \Delta b_j(m')
+    \cdot \bigl(DM_j(m') - \overline{DM}_j\bigr)
+  }_{\text{dead miles correction}}
+\end{equation}
+%
+where $\mathcal{M}_j$ is the set of marginal routes drawn in beyond the
+current assignment, ordered by proximity according
+to~\eqref{eq:assignment_buses}; $\Delta b_j(m')$ is the number of additional
+buses from route $m'$ stationed in the garage (equal to the full PVR of $m'$
+for all but the last marginal route, which is truncated so that the total
+increment is exactly 50 buses); $\overline{DM}_j$ is the PVR-weighted average
+dead-mile cost of routes already stationed at the garage at baseline; and all
+other terms are as defined above. Further details and justification of these
+measures are provided in Appendix~\ref{A:Capacity_expansion_details}.
+
+
+%The empirical validity of the assignment technology 
+%underlying $\mathcal{M}_j$ is supported by the validation in 
+%Appendix~\ref{A:assignment_validation}, which recovers the correct operating 
+%garage for 46 percent of routes exactly and 62--70 percent within a 
+%two-minute dead-mileage tolerance.
+
+ 
+Figure~\ref{F:term_decomposition} presents the joint distribution of the two
+components of~\eqref{eq:UP1} across garages.\footnote{Full rankings are
+reported in Appendix Tables~\ref{tab:cap-expansion-binding}
+and~\ref{tab:cap-expansion-slack}.} The horizontal axis measures the
+structural per-bus garage value in monetary units via $\kappa$, recentered
+relative to the lowest-valued garage in the sample.\footnote{The garage with
+the lowest $\hat{\pi}^{bus}$ is Grays, the easternmost garage in the sample,
+located just beyond the Greater London boundary and owned by Arriva.} The
+vertical axis measures the dead miles correction, negative when marginal
+routes are further than the baseline average dead miles of currently assigned
+routes and positive when they are closer.\footnote{The correlation between
+the two terms is positive ($r = 0.161$): structural estimates capture that
+garages closer to more routes have higher value regardless of where those
+routes are currently assigned, while variation in the dead miles penalty
+conditional on structural value reflects route-garage-specific empty driving
+times that go beyond the binary 10-minute threshold in
+\textit{RouteStarts10Min}.}
+ 
+The positive dead miles correction for some garages identifies cases where
+the observed allocation includes relatively distant routes that inflate
+$\overline{DM}_j$, suggesting inefficiency in the baseline assignment
+relative to proximity. For most garages, however, the correction is negative:
+marginal routes are further away than the baseline average, underscoring the
+increasing marginal cost of capacity expansion as closer routes are already
+served. This implies that even absent binding land constraints, dead mile
+costs alone are sufficient to make multiple smaller garages more profitable
+than a single large depot for a profit-maximizing operator.
+ 
+The figure highlights the two distinct routes to high expansion value. Erith
+and Kangley Bridge Road rank near the top on the structural dimension despite
+modest dead miles corrections; Waterloo reaches a similar total return
+through a large positive dead miles correction, reflecting that its currently
+assigned routes are more distant than those a capacity increment would draw
+in. At the other end, Bow, Tottenham, and Northumberland Park are pulled to
+the bottom of the distribution by strongly negative dead miles corrections:
+the routes available at the margin are far from the depot, and this cost
+dominates any structural gain.
+ 
+To explain what drives the private returns to investment, we regress
+$\Delta\hat{\Pi}_{ij}$ on the structural model covariates, capacity,
+utilization, and the average baseline dead miles, with and without operator
+fixed effects (Table~\ref{tab:cap-expansion-reg}). In line with the
+discussion above, an important factor is the average dead miles of currently
+assigned routes: garages serving more distant routes at baseline have lower
+expansion value since their marginal routes will be even further
+away.\footnote{The baseline dead miles measure is not included in the
+structural model --- as it is only observed for garages in the final
+allocation and not throughout the sample --- where route proximity is
+captured by the binary \textit{RouteStarts10Min} threshold. The two empty
+driving measures are collinear: conditional on baseline dead miles, garages
+close to many route endpoints they do not currently serve face a larger dead
+miles penalty on marginal expansion, which explains the negative coefficient
+on \textit{RouteStarts10Min} in columns~(1)--(2). When baseline dead miles
+are excluded (column~3), \textit{RouteStarts10Min} becomes insignificant
+and $\log(\textit{NrGarages})$ and capacity become significant, reflecting
+that operators with many large garages tend to be more distant from the route
+network --- as illustrated by Arriva's Grays garage at the eastern
+boundary.} Incumbency tenure is a robust positive driver across all
+specifications, reflecting that firms stay longer in more profitable garages.
+Operator fixed effects absorb substantial variation --- $R^2$ rises from
+$0.876$ to $0.962$ --- reflecting that operator-specific network
+configurations generate systematically different baseline expansion values,
+ranging from \pounds$12.8$m for Tower Transit to \pounds$21.6$m for Arriva
+after controlling for garage-level covariates, and consistent with firm
+heterogeneity in purely network-based entry opportunities documented in
+Section~\ref{SS:UP3}.
+ 
+The key policy-relevant finding concerns competitor proximity. Conditional on
+operator fixed effects, one additional competitor garage within a 10-minute
+drive reduces the return to a 50-bus capacity expansion by \pounds$735{,}000$
+on average --- approximately 3--6 percent of the operator-specific baseline
+expansion value. This quantifies the wedge between private and social
+returns: operators are incentivized to protect spatial isolation from
+competitors, which generates local monopoly rents but imposes procurement
+costs on the taxpayer, rather than to expand toward underserved parts of the
+route network.
+ 
+A central concern in our framework, noted in the introduction, is that
+location-varying fixed costs are not identified. Garages in
+competitor-sparse areas may simply be cheaper to expand because they tend to
+lie outside high-land-value city-centre boroughs, conditional on closeness to
+the route network. Columns~(4)--(6) of Table~\ref{tab:cap-expansion-reg}
+address this by deflating $\Delta\hat{\Pi}$ by a borough-level house price
+index, demeaned so that the average London borough takes the value 1 and
+ranging from 0.83 to 1.15 across the garages in the sample. The adjustment
+has a modest effect on the competitor-proximity estimate:
+$-$\pounds$679{,}000$ in column~(5) versus $-$\pounds$735{,}000$ unadjusted
+in column~(2).\footnote{After excluding garages in the periphery, operator
+fixed effects reverse sign, and capacity expansion becomes more profitable
+for larger operators. Besides sample selection, this is consistent with
+different firms operating from systematically different parts of the city,
+with operator identity partially proxying for location in high-HPI inner
+boroughs in the nominal regressions.} Columns~(7)--(9) go further, deflating
+by ward-level house prices to absorb finer-grained variation in land values
+within boroughs. The competitor-proximity effect strengthens to
+$-$\pounds$1{,}142{,}000$ in column~(8), suggesting that if anything the
+borough-level adjustment understates the spatial-isolation incentive by
+failing to capture within-borough land-value gradients. Arguably, residential
+house prices are an imperfect proxy for industrial land values and
+development costs. However, to the extent that they capture differences in
+land values, city-centre density, and depot redevelopment costs, the
+stability and strengthening of the competitor-proximity coefficient across
+columns~(2), (5), and (8) minimizes the concern that the spatial-isolation
+incentive is an artefact of peripherally located garages facing lower
+unobserved fixed expansion costs.
+ 
+We conclude that the socially optimal margin of investment would minimize
+dead miles and operational costs; the privately optimal margin additionally
+rewards competitor isolation. Regulation has value precisely because this
+wedge is not internalized by profit-maximizing operators, as further explored
+in Appendix~\ref{A:collusion}.
+
+%$25.7 \times (\log 11 - \log 10) \approx \text{\textsterling}1\text{m}$, 
+%Co$\text{\textsterling}34.6\text{m}$ 
+%in column (2) implies that a hypothetical operator with a single garage and 
+%average values of all other covariates would find capacity expansion highly 
+%profitable---it is the accumulation of garages that erodes this value, 
+%consistent with the structural model's prediction that market power is most 
+%concentrated among operators with small, strategically positioned networks 
+%rather than large ones. The $R^2$ of 0.36--0.45 confirms that the structural 
+%model covariates account for a substantial share of the variation in 
+%$\Delta\hat{\Pi}_{ij}$, supporting the use of \eqref{eq:UP1} as a coherent 
+%summary of the returns to capacity expansion.
+
+\begin{figure}[!tb]
+\caption{Private returns to capacity expansion}\label{F:term_decomposition}
+\centering
+\includegraphics[width=0.8\textwidth]{\plots/urban1-term-correlation.pdf}
+\fnote{Structural term ($\hat{\pi}_{ij}^{bus}$ horizontal axis) and dead miles correction 
+(vertical axis) from returns to capacity expansion \eqref{eq:UP1}, for all 62 garages in the sample with observed capacity that are not vacant and have buses stationed in 2019. Garages are coloured by baseline capacity utilization and sized 
+by capacity. Labeled garages rank among the three highest on the structural 
+term, the two most extreme on the dead miles correction, or the four largest 
+by capacity. Grays serves as a reference point with lowest $\hat{\pi}_{ij}^{bus}$.}
+\end{figure}
+%\caption{Urban policy 1 -- term1 on x-axis and term2 on y-axis\label{F:term_decomposition}}
+
+\subsection{Welfare-maximizing global allocation}\label{SS:likecompanion}                                                                                              
+%This section quantifies how much welfare could improve if the garage-operator                                                                                        
+%assignment itself were optimized. Since TfL procures routes at cost plus                                                                                               
+%mark-up, minimizing total expected operator profit $\sum_j \hat{\Pi}_{ij}(\Gamma)$
+%is equivalent to minimizing total procurement payments by the taxpayer. We                                                                                             
+%therefore find the assignment $\Gamma^*$ that achieves this. In \cite{marra-oswald} we show that unbundling garage                                                  
+%ownership from route operation and central assignment---allowing a system operator to assign buses                                                                     
+%to any garage regardless of ownership---has the potential to reduce dead miles by 14 percent. That paper abstracts from strategic garage interactions, which yields a linear assignment  
+%problem solvable with a standard LP solver.                                                                                                                            
+                                                                                                                                                                    
+%Unlike that linear benchmark, the present problem, where garage utility depends on the full allocation through strategic network interactions, is a variant of the   
+%quadratic assignment problem and NP-hard, in general: reassigning a single garage across two operators cascades through the objective of every other garage held by both affected operators 
+%via three coupled, non-separable terms --- the garage count, the minimum distance to the operator's own network, 
+%and the local competitor count. The feasible space of $8^{68} \approx 10^{61}$ candidate allocations of garages to operators in 2019 rules 
+%out exhaustive search, motivating simulated annealing with multi-restart. \footnote{This is similar to the algorithm in \cite{kreindler2024optimal}, and exploits the
+%fact that drive times between all garages and routes are precomputed and fixed, so only the network variables of garages within a 10-minute radius of each proposed
+%reassignment need to be updated at each step. Simulated annealing is a stochastic local search algorithm that accepts welfare-improving swaps with probability one and
+%welfare-reducing swaps with a positive probability that declines over time according to a cooling schedule, allowing escape from local optima early in the search. We
+%run three restarts, each initialised from the best state found so far, and report the allocation achieving the highest welfare across all restarts.\florian{this needs to be fixed --- Florian I leave the fill in of the technical details to you, ok?}}
+
+The capacity-expansion counterfactuals quantify the private--social wedge
+arising from garage location choices. We now turn to simulations that estimate
+the welfare gains from reassigning garages across operators, holding the
+existing route and garage network fixed.
+ 
+The structural estimates imply that the primary source of inefficiency is the
+private incentive to maintain spatial isolation from competitors. Unlike the
+cost-driven components of the profit function---zero-sum transfers between TfL
+and the winning operator---local monopoly rents constitute a deadweight loss:
+by locating away from competitors, operators sacrifice proximity to routes and
+own garages, increasing dead miles and the associated externalities (pollution,
+noise, congestion) borne by society.%
+\footnote{A second source of inefficiency captured by these counterfactuals
+stems from insufficient garage transactions, labelled ``ownership frictions''
+in \citet{marra-oswald} and discussed further in Appendix~\ref{A:collusion}.
+Land-use restrictions, analysed in Sections~\ref{SS:UP3} and~\ref{SS:UP1},
+constitute a third source that we do not address here; garage locations and
+sizes are held fixed throughout.}
+A social planner therefore seeks to minimise local monopoly rents while holding
+operational costs no higher than at the 2019 baseline.
+ 
+Formally, the planner solves
+%
+\begin{align}
+  \label{eq:planner}
+  W_1 = \max_{\Gamma'} \; &
+    -\sum_{i,k} \left[
+      \hat{\Pi}_{ik}(\Gamma')
+      + \hat{\theta}_1 \cdot \Delta\mathrm{YearsInc}_{k}(\Gamma')
+    \right], \\
+  \text{subject to:}\quad
+    & \sum_{i,k} \mathrm{MinDurOwnGar}_{ik}(\Gamma')
+      \leq \sum_{i,k} \mathrm{MinDurOwnGar}_{ik}(\Gamma),
+      \label{eq:c1} \\
+    & \sum_{k} \log(\mathrm{NrGarages})_{ik}(\Gamma')
+      \leq \sum_{k} \log(\mathrm{NrGarages})_{ik}(\Gamma),
+      \label{eq:c3} \\
+    & \sum_{k} \mathbf{1}[\text{operator } o \text{ exits under } \Gamma'] = 0
+      \quad \forall\, o,
+      \label{eq:c4}
+\end{align}
+%
+where $\Gamma' \equiv \{(i'_k, k)\}_{k \in \mathcal{K}}$ denotes a feasible
+garage--operator assignment and $i'_k \in \mathcal{I}$ is the operator
+assigned to garage $k$ under the counterfactual. The penalty term
+$\hat{\theta}_1 \cdot \Delta\mathrm{YearsInc}_{k}(\Gamma')$ captures the
+destruction of incumbent-specific investment that accompanies reallocation:
+%
+\begin{equation}
+  \Delta\mathrm{YearsInc}_{k}(\Gamma') =
+  \begin{cases}
+    0 & \text{if } i'_k = i_k \quad \text{(incumbent retained)}, \\
+    \mathrm{YearsInc}_{k} & \text{if } i'_k \neq i_k \quad \text{(operator
+    changes)},
+  \end{cases}
+\end{equation}
+%
+and $i_k$ and $i'_k$ denote the operators assigned to garage $k$ under the
+baseline $\Gamma$ and the counterfactual $\Gamma'$, respectively. No new
+operators enter: $\mathcal{I}$ is held fixed, consistent with
+constraint~\eqref{eq:c4}.
+ 
+Constraint~\eqref{eq:c1} requires that aggregate proximity to own garages does
+not deteriorate relative to baseline. Constraint~\eqref{eq:c4} rules out
+operator exit, which would reduce competition and increase mark-ups.
+Constraint~\eqref{eq:c3} merits further discussion. Since
+$\sum_k \log(\mathrm{NrGarages})_{ik}$ is equivalent to
+$\sum_i n_i \log n_i$, and $f(n) = n\log n$ is strictly convex, this sum is
+minimised by equal market shares and increases sharply under concentration. The
+constraint therefore permits equalising transfers but blocks concentrating
+ones, providing a competition-policy safeguard analogous to the
+Herfindahl--Hirschman Index.%
+\footnote{To illustrate: with an initial distribution of $(2,4,8)$ garages,
+$\sum_i n_i \log n_i \approx 23.6$. Equalising to $(4,5,5)$ lowers this to
+$22.4$ (feasible), while concentrating to $(1,1,12)$ raises it to $29.8$
+(infeasible under the constraint).}
+The constraint is further motivated by the structural estimates: the negative
+coefficient on $\log(\mathrm{NrGarages})$ implies that concentrating ownership
+would mechanically raise measured welfare through that channel alone,
+independently of any genuine efficiency gain; constraint~\eqref{eq:c3} rules
+out this spurious source of improvement.
+ 
+Because the objective depends on the full allocation through strategic network
+interactions---via the coupled, non-separable terms $\mathrm{NrGarages}$,
+$\mathrm{MinDurOwnGar}$, and $\mathrm{CompGar}$---the problem is a variant of
+the quadratic assignment problem and NP-hard in general. The feasible space of
+$8^{68} \approx 10^{61}$ candidate allocations rules out exhaustive search; we
+therefore solve it by simulated annealing with multi-restart.%
+\footnote{This approach is analogous to \citet{kreindler2024optimal}. The
+algorithm exploits the fact that drive times between all garages and routes are
+precomputed and fixed, so only the network variables of garages within a
+ten-minute radius of each proposed reassignment need to be updated at each
+step. Simulated annealing accepts welfare-improving swaps with probability one
+and welfare-reducing swaps with a positive probability that declines according
+to a cooling schedule, allowing escape from local optima early in the search.
+We run three restarts, each initialised from the best state found so far. \florian{to update --- Florian I leave the fill in of the technical details to you, ok?}}
+ 
+As in the urban-policy simulations of Section~\ref{SS:UP1}, we take the 2019
+network as the benchmark, restricting attention to the \textcolor{red}{[XX]}
+garages with observed capacity, positive bus assignments, and at least one
+active route in 2019. We compute a \textbf{baseline} by assigning buses to
+garages by proximity using equation~\eqref{eq:assignment_buses} given the
+observed 2019 garage--operator allocation, and evaluate welfare
+at~\eqref{eq:planner} under four increasingly rich specifications.
+ 
+%% ------------------------------------------------------------------
+\paragraph{v1 --- Operator network reorganisation.}
+We iteratively propose swaps of garage ownership across operators and accept
+welfare-improving reallocations subject to the constraints
+in~\eqref{eq:planner}. Routes and the associated bus fleet follow the garage
+to its new operator. Because bus-to-garage assignments are recomputed within
+each operator's own garage network by proximity after each swap, dead-mile
+covariates change; the garage-level variable $\mathrm{RouteStarts10Min}_k$
+entering the structural utility is held fixed by construction, as it was
+unobserved for most of the historical estimation sample. Comparing the
+baseline to v1 therefore isolates the welfare effect of a different spatial
+organisation of garage ownership: agglomeration benefits from denser operator
+networks, reduced local monopoly rents from closer competitor proximity, and
+the destruction of incumbent-specific investment captured by the
+$\mathrm{YearsInc}$ term.
+ 
+%% ------------------------------------------------------------------
+\paragraph{v2 --- Dead-mile costs.}
+We augment the objective with a garage--operator-specific dead-mile penalty
+based on the full route-to-garage assignment $\mathcal{R}_k(\Gamma')$
+available in the simulation. For each garage $k$ operated by operator $i$
+under allocation $\Gamma'$, we subtract from $\hat{\Pi}_{ik}(\Gamma')$ the
+penalty
+%
+\begin{equation}
+  \frac{\beta}{\kappa} \cdot \frac{1}{|\mathcal{R}_k|}
+  \sum_{r \in \mathcal{R}_k(\Gamma')} \mathrm{DeadMiles}_{ikr},
+\end{equation}
+%
+where $\mathrm{DeadMiles}_{ikr}$ is the start--stop drive time (in minutes)
+from garage $k$ to route $r$, $\beta = 0.019$ million pounds per minute of
+empty driving time (from the dead-miles regressions), and $\kappa$ is the
+utils-to-million-pounds conversion from Section~\ref{sec:counterfactuals}. To
+rule out spurious welfare gains driven by routes being reassigned to more
+distant garages---which mechanically inflates the penalty and hence raises
+$W$---we impose the additional constraint
+%
+\begin{equation}
+  \label{eq:c_dm}
+  \sum_{k} \sum_{r \in \mathcal{R}_k(\Gamma')} \mathrm{DeadMiles}_{ikr}(\Gamma')
+  \leq \lambda_{DM}
+  \sum_{k} \sum_{r \in \mathcal{R}_k(\Gamma)} \mathrm{DeadMiles}_{ikr}(\Gamma).
+\end{equation}
+%
+We report results for $\lambda_{DM} = 1$ (dead-mile costs weakly
+non-increasing) and $\lambda_{DM} = 0.95$ (a five-percent reduction in total
+dead miles is required). The key difference between v1 and v2 is that v2
+captures the full operational cost of a dispersed garage network: operators
+serving routes from geographically distant garages bear higher dead-mile costs
+that are now explicitly penalised in the objective.
+ 
+%% ------------------------------------------------------------------
+\paragraph{v3 --- Bus fleet constraints.}
+Versions v1 and v2 assume that operators can, in the medium to long run,
+acquire sufficient buses to operate all routes that follow from a garage swap.
+We now relax this assumption and consider what happens when an operator's bus
+fleet is constrained at its 2019 baseline level. A proposed garage swap is
+accepted only if the acquiring operator's baseline fleet is sufficient to cover
+its existing route commitments plus the PVR of the routes inherited with the
+garage. We consider two variants. In $W_3^{\mathrm{slow}}$, the fleet
+constraint governs feasibility at entry but the operator's capacity expands
+upon taking over a garage, allowing gradual fleet growth. In
+$W_3^{\mathrm{fixed}}$, the constraint is strict: bus stocks never change and
+operators always operate within their observed 2019 fleet. Both variants build
+on the v2 objective with $\lambda_{DM} = 1$.
+ 
+%% ------------------------------------------------------------------
+\paragraph{v4 --- Internalising dead-mile externalities.}
+Dead bus movements impose external costs on London residents through air
+pollution, carbon emissions, noise, and congestion that are not borne by the
+operating firm. Combining UK damage cost estimates for local pollution, noise,
+congestion, and carbon, and assuming buses make on average two trips to and
+from the route, we obtain a Pigouvian correction $\gamma$ equivalent to
+approximately 20 percent of the private dead-mile penalty $\beta/\kappa$
+already embedded in v2 and v3.%
+\footnote{Using DEFRA central damage cost estimates for NO$_x$
+({\pounds}10{,}193 per tonne) and PM$_{2.5}$ ({\pounds}114{,}411 per tonne),
+the UK WebTAG central carbon value of {\pounds}248 per tonne CO$_2$, and
+Transport for London unit cost estimates for noise ({\pounds}0.04 per km) and
+urban congestion ({\pounds}0.05 per km), the combined social cost of empty bus
+movements is approximately {\pounds}0.30 per km. Scaled to a five-year
+contract period assuming two dead-mile trips per bus per day at an average
+London bus speed of 18 km/h, and converted to utility units via $\kappa$, the
+implied Pigouvian correction is
+%
+\begin{equation*}
+  \gamma =
+  \underbrace{\frac{c_{\mathrm{ext}}}{\kappa}}_{\text{utils/{\pounds}m}}
+  \times
+  \underbrace{n_{\mathrm{trips}} \cdot d_{\mathrm{contract}} \cdot s}_{%
+    \text{km/(min$\cdot$bus$\cdot$contract)}}
+\end{equation*}
+%
+where $c_{\mathrm{ext}} = {\pounds}0.299$ per km, $n_{\mathrm{trips}} = 2$,
+$d_{\mathrm{contract}} = 1{,}825$ days, $s = 0.3$ km/min, and
+$\kappa = 1.233$ {\pounds}m per util. This yields
+$\gamma \approx 2.66 \times 10^{-4}$ utils per dead-mile minute per bus, or
+$\gamma \times \bar{n}_{\mathrm{PVR}} \approx 0.20\cdot\theta_{DM}$ per
+garage at mean PVR $\bar{n}_{\mathrm{PVR}} = 11.85$ buses per route.
+\textcolor{red}{[UPDATE]}}
+ 
+Version v4 augments the v3 objective with an explicit social benefit of
+dead-mile reduction:
+%
+\begin{align}
+  \label{eq:planner-v4}
+  W_4 = \max_{\Gamma'} \; &
+    -\sum_{i,k} \left[
+      \hat{\Pi}_{ik}(\Gamma')
+      - \frac{\beta}{\kappa}\,\frac{1}{|\mathcal{R}_k|}
+        \sum_{r \in \mathcal{R}_k(\Gamma')} \mathrm{DeadMiles}_{ikr}
+      + \hat{\theta}_1 \cdot \Delta\mathrm{YearsInc}_{k}(\Gamma')
+    \right]
+    + \gamma \cdot \bigl(\mathrm{DM}^0 - \mathrm{DM}(\Gamma')\bigr),
+    \notag \\
+  \text{subject to:}\quad
+    & \eqref{eq:c1},\;\eqref{eq:c3},\;\eqref{eq:c4},\;\eqref{eq:c_dm},
+\end{align}
+%
+where $\mathrm{DM}^0 = \sum_{k,r} \mathrm{PVR}_r \cdot d_{kr}$ and
+$\mathrm{DM}(\Gamma') = \sum_{k}\sum_{r \in \mathcal{R}_k(\Gamma')}
+\mathrm{PVR}_r \cdot d_{kr}$ denote total PVR-weighted dead miles at the
+baseline and under the counterfactual, respectively. Unlike v2 and v3, where
+the dead-mile penalty enters as a correction to measured operator profit---so
+that a reduction in dead miles raises measured profits and \emph{reduces}
+$W = -\sum_k \hat{\pi}_k$---version v4 adds a separate term that directly
+rewards the planner for reducing total dead miles. The hard dead-mile
+constraint from v2 and v3 is therefore dropped: the explicit social benefit
+term already penalises dead-mile increases through the objective, making the
+constraint redundant. Version v4 thus represents a pure Pigouvian
+internalisation of the externality, trading off network reorganisation gains
+against pollution abatement without an arbitrary constraint threshold.
+ 
+
+Figure~\ref{fig:realloc-experiment} displays the main results;
+Table~\ref{tab:welfare-realloc} decomposes the welfare effects by covariate.
+
+
+\begin{figure}
+    \caption{Results from garage reallocation experiment.\label{fig:realloc-experiment}} 
+    \begin{adjustbox}{width= \textwidth}
+        \includegraphics{\plots/map_realloc_panel.pdf}
+    \end{adjustbox}
+    \fnote{Each panel shows the resulting new allocation of garages if we maximize the social welfare function (i.e. minimize operator rents) under increasingly tight operational constraints. Panel a) imposes no constraints on the new allocation, panel b) required enough spare bus capacity, and panel c) adds an additional penalty for increased operational costs via additional dead miles from new garages. Details in appendix \ref{S:realloc-experiment}.}
+\end{figure}
+
+\begin{table}[!tb]
+\caption{Decomposition of welfare effects from Garage Reallocation}\label{tab:welfare-realloc}
+\centering
+\resizebox{0.8\textwidth}{!}{%
+\input{\tables/realloc_decomposition.tex}}
+\fnote{Given the linearity of the structural model, we can compute for each covariate $k$ its change from baseline ($x_{kj}^0$) to optimal value as $\Delta x_{kj} = x_{kj}^* - x_{kj}^0$. The total change in welfare due to covariate $k$ is then $-\hat{\theta}_k \sum_j \Delta x_{kj}$, which is what the upper panel of the table shows.}
+\end{table}
+
+\section{Conclusions}\label{S:Conclusion}
+This paper studies spatial rents and firm conduct in the London bus market, 
+building on a new database of bus garages used by private firms for the 
+operation of bus routes in the Greater London Area. The dataset contains 
+details about the location and ownership of bus garages over time, starting 
+from 1994 when the market was privatized along geographic lines, and is 
+constructed by combining archival data from the London Omnibus Traction 
+Society with information from industry hobbyist sources. The London bus 
+procurement setting is particularly suitable for the analysis of spatial 
+rents: with the demand side tightly regulated by TfL, the location of a 
+garage in the network of routes and competing garages is the key determinant 
+of a firm's profitability. We consider spatial rents broadly, capturing 
+economies of density from operating routes from multiple nearby own garages, 
+local monopoly rents from isolation relative to competitor garages, and dead 
+mile transportation costs from proximity to the route network.
+
+The key methodological contribution is a reversed discrete choice framework 
+that exploits the exclusive use of garages to recast the firm location 
+problem as one where garages choose operators, yielding a tractable 
+multinomial estimation strategy that sidesteps the dimensionality and 
+equilibrium multiplicity problems that arise in standard multi-player entry 
+games. The garage value function is grounded in a structural procurement 
+auction model that links spatial positioning to expected profitability, 
+while remaining agnostic about competitive conduct at the auction 
+stage---a flexibility that proves essential for the counterfactual analysis. 
+A parsimonious model with low-dimensional representations of spatial 
+centrality measures does remarkably well in approximating the data, as supported by model fit measures. The structural estimates 
+reveal that both economies of density and local monopoly rents are 
+economically meaningful determinants of garage value---an operator is 
+indifferent between having its closest own garage three minutes nearer and 
+having one fewer competitor garage within a ten-minute drive---and that 
+spatial positioning, rather than historical patterns of use, explains the 
+observed clustering of operators in certain parts of London.
+
+Applying the estimates to counterfactual simulations, we find that private 
+garage ownership generates an efficiency loss of \textsterling 34m-- 
+\textsterling 51m per year---12 to 18 percent of total procurement 
+costs---as incumbents retain garages that would be more valuable to 
+competing operators. We further find that the pattern of unrealized 
+profitable transactions correlates with market structure in ways consistent 
+with tacit market-sharing: implied punishment values are highest during 
+the stable oligopoly period of 2001--2008 when entry was absent, and 
+correlate strongly with the spatial isolation of garages from competitor 
+networks. These results suggest that the concerns voiced by the UK 
+Competition Commission about potential market-sharing agreements in the 
+London bus market are well-founded, though we stop short of claiming 
+conclusive evidence of collusion. More broadly, the paper illustrates how 
+the location choices of firms in regulated urban markets encode information 
+about the spatial structure of competition that is not visible in price or 
+quantity data alone. The framework applies to any market where firms 
+maintain proprietary infrastructure, capacity is geographically fixed, and 
+spatial proximity generates both cost synergies and competitive 
+spillovers---conditions that characterize a wide range of industries from 
+logistics and retail to utilities and public transport. A natural 
+policy implication is that regulators in such markets should attend not 
+only to pricing and procurement conduct but also to the spatial 
+organization of firm infrastructure, which can generate and entrench 
+market power in ways that standard regulatory tools are ill-equipped 
+to address.
+
+
+%% BIBLIOGRAPHY
+\newpage
+\bibliographystyle{aea}
+\bibliography{../BusLocation_references} 
+
+
+
+
+%% APPENDIX
+\newpage
+\clearpage
+\appendix
+
+\begin{center}{\large{[For Online Publication]}}\end{center}
+
+
+\section{Additional results}
+
+\setcounter{table}{0}
+\renewcommand{\thetable}{A\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{A\arabic{figure}}
+
+\begin{table}[!h]
+\caption{Examples of garages with central functions}\label{T:garage-syn}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{| l | l | L{\linewidth-4cm}|}
+	\hline
+	Operator&Garage 	&Description of synergy / task \\
+	\hline
+	Abellio	&Battersea Depot&	This large central London depot is home to some iconic London bus routes and is the centre for Abellio bus driver training and our iBus operations. Over 450 people are based here. Roles include operations, engineering, performance and HR.\\ \hline
+	Abellio &	Walworth&	Welcome to our easily accessible, central depot in the heart of Camberwell. Over 500 people are based here, roles include operations, engineering and head office functions.\\ \hline
+	Arriva London	&Enfield	&In recent times, Enfield has become a central part of Arriva London operations with the opening of the Accident Repair Centre, which also undertakes major refurbishments of the company’s fleet.\\ \hline
+	Arriva London	&Norwood	&The garage previously supplied some buses and drivers for route 19 following the conversion from Routemaster operation in 2005.\\ \hline
+	Arriva London	&Turnbridge Wells&	Lauren Edmonds from Arriva: ``It's fantastic that we're ready to move our engineering teams in at the new depot and we're expecting everything to be fully operational by the spring."\\ \hline
+	Blue Triangle	&River Road&	Some buses are regularly shared with River Road garage. This garage also acts as a storage for the Here East bus fleet.\\ \hline
+	East London	&West Ham	&The garage became fully operational in November 2009 taking over its own maintenance. The new garage is able to hold over 350 buses. It is the biggest bus garage in England and is the new location for Stagecoach London's head office and training centre.\\ \hline
+	GoAhead	&Stockwell&	Buses are given a thorough check-over every 28 days or so by Stockwell's team of 35-odd engineers. Whenever you hear the announcement: ``This driver has been instructed to  hold the service", that call has been made manually, from a control room like the one at Stockwell. \\ \hline
+	London General&	Merton&	Merton was also responsible for the maintenance of vehicles for route 200 in 1988/9 after the withdrawal of the Cityrama sightseeing company, whilst the route was operated from Sutton garage.\\ \hline
+	London General	&Bexleyheath	&Even though Belvedere was a London General garage it operated as a satellite of London Central's Bexleyheath garage. All of Belvedere's engineering and fleet and staff management was done at or organised by Bexleyheath.\\ \hline
+	RATP Dev London&	Edgware	&Edgeware is referenced as the company's ``operating base" and pictures show the workshop. \\ \hline
+	RATP Dev London&	Harrow &	RATP Dev received planning approval for a three-bay double decker workshop at Harrow garage. The facility is to replace the existing maintenance area and allow for maintenance on the new fleet of electric buses.\\ \hline
+	RATP Dev London	&Stamford Brook&	Flagship bus garage with RATP Dev Transit London headquarters. Location of comprehensive central engineering works.\\
+	\hline
+	\end{tabular}}
+	\fnote{Garage task descriptions are quotes from the company's websites, collected during August 2024. Sources are available upon request.}
+\end{table}
+\clearpage
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.7\textwidth]{\plots/ownership-count.pdf}
+\caption{Number of ownership changes by garage}
+\fnote{This map illustrates that different garages experience a different number of owners over time, in part depending on their location within the route network. Darker road segments imply a greater number or bus routes passing the same segment.\label{fig:ownership-count}}
+\end{figure}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.8\textwidth]{\plots/ownership-timeseries.pdf}
+\caption{Time series of Ownership Changes in garage data}
+\fnote{We call \emph{Vacant} garages those which are vacant, abandoned or not yet built at a certain point in time. \emph{New} refers to a change of operator in a certain garage.\label{fig:ownership-TS}}
+\end{figure}
+
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.8\textwidth]{\plots/operator-garage-count.pdf}
+\caption{Time series of \emph{Number of Garages} by operator}
+\fnote{Number of garages owned by the eight largest operators by year, 
+measured on the closest changedate prior to January 1st of each year. 
+Garages owned by all remaining operators are aggregated as ``Other".} \label{fig:garages-TS-byoperator}
+\end{figure}
+
+
+
+\begin{figure}[!p]
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{When owner changed}
+\includegraphics[width = \textwidth]{\plots/nalt-by-year-mlogit.pdf}\label{F:alternativesa}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{When owner stayed}
+\includegraphics[width = \textwidth]{\plots/nalt-by-year-nonchoice.pdf}\label{F:alternativesb}
+\end{minipage}%
+\caption{Number of active operators that a garage can choose from}
+\end{figure}
+
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.7\textwidth]{\plots/GOF-entrants(6).pdf}
+\caption{Model fit: ROC curves for the baseline estimates in Table \ref{T:strucestim}.}\label{F:GOFestimates}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[width =0.7\textwidth]{\plots/choice-frequency/L-mlogit-model6.pdf}
+\caption{Model fit: in-sample observed vs predicted entry frequency}
+\fnote{Showing the in sample fit of the baseline estimates in Table \ref{T:strucestim}. Data choice frequency records the number of choice situations in data where an operator (including the Vacant operator) is the entrant, divided by the total number of choice situations (192), in all garage-change-dates where the operator changed. Model choice frequency records the share of these choice situations where the operator is assigned the highest predicted utility by the selected model.}\label{F:frequencies}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[width = 0.8\textwidth]{\plots/choice-frequency/L-nonchoice-model6.pdf}
+\caption{Out-of-sample observed vs model-predicted garage ownership for \emph{stayers}}
+\fnote{Showing the out-of-sample predictions of the baseline estimates in Table \ref{T:strucestim} in comparison to observed garage ownership. Data choice frequency records the number of choice situations in data where an operator (including the Vacant operator) is the incumbent, divided by the total number of choice situations (66,964), in all garage-change-dates where the operator did not change. Model choice frequency records the share of these choice situations where the operator is assigned the highest predicted utility by the selected model.}
+\label{F:frequenciesOOS}
+\end{figure}
+
+\begin{table}[!tb]
+\caption{Structural estimates with alternative distance 
+specifications\label{T:robustness_dist}}
+\resizebox{\textwidth}{!}{%
+\input{\tables/L-paper-robustness-distances.tex}}
+\fnote{Column (1) is the baseline specification; variables are described 
+in detail in Table~\ref{T:strucestim}. Columns (2)--(3) replace 
+\textit{RouteStarts10Min} with alternative dead mile measures: the number 
+of route stopover points within a 10-minute drive in column (2), and the 
+number of stopover points within 500 metres in column (3), where a 
+stopover point is defined as a bus stop where at least five routes 
+intersect. Column (4) replaces \textit{MindurOwnGar} with 
+\textit{AvgdurOwnGar}, the average drive time between garage $j$ and all 
+other garages of the same operator. Column (5) replaces 
+\textit{CompGar10Min} with \textit{MindurCompGar}, the minimum drive time 
+between garage $j$ and the nearest competitor garage. Column (6) replaces 
+\textit{CompGar10Min} with \textit{AvgdurCompGar}, the average drive time 
+between garage $j$ and all competitor garages. Statistical significance: 
++ $p<0.1$, * $p<0.05$, ** $p<0.01$, *** $p<0.001$.}
+\end{table}
+
+
+\begin{table}[!tb]
+\caption{Structural estimates with alternative incumbency and scale 
+specifications\label{T:robustness_other}}
+\resizebox{\textwidth}{!}{%
+\input{\tables/L-paper-robustness-other.tex}}
+\fnote{Column (1) is the baseline specification; variables are described 
+in detail in Table~\ref{T:strucestim}. Column (2) replaces the linear incumbency term with 
+$\exp(-\textit{YearsInc})$; column (3) omits the incumbency variable 
+entirely. Column (4) replaces $\log(\textit{NrGarages})$ with 
+\textit{NrGarages} in levels; column (5) omits the scale variable entirely. 
+Column (6) omits the \textit{Nonvacant} intercept. Statistical significance: 
++ $p<0.1$, * $p<0.05$, ** $p<0.01$, *** $p<0.001$.}
+\end{table}
+
+\begin{table}
+\caption{Private returns from capacity expansion, for garages with (near-)binding capacity}\label{tab:cap-expansion-binding}
+\centering
+\resizebox{0.83\textwidth}{!}{%
+\input{\tables/capacity-expansion-ranking-binding.tex}}
+\fnote{$\Delta \Pi$ (£m) is the change in private returns, in millions of pounds, from adding 50 buses to a garage relative to vacating the site (i.e.\ selling the plot at market value), holding the garage infrastructure and operator-bus network fixed. Private returns are defined in \eqref{eq:UP1} and decompose into two components: the \emph{Structural} term, which captures the average per-bus value of operating from that garage, and the \emph{DM correction}, which adjusts for the change in dead-mile costs as the 50 additional buses are drawn from marginal routes that may have different deadhead driving distances. $B^{\text{pre}}$ denotes the number of buses stationed at the garage before the capacity expansion; utilization is defined as $B^{\text{pre}}/\text{Capacity}$. Near-binding capacity defined as $\geq 80\%$ utilization at baseline. See Section~\ref{SS:urbanpolicy1} for further details.}
+\end{table}
+
+
+\begin{table}
+\caption{Private returns from capacity expansion, for garages with excess capacity}\label{tab:cap-expansion-slack}
+\centering
+\resizebox{0.83\textwidth}{!}{%
+\centering
+\input{\tables/capacity-expansion-ranking-slack.tex}}
+\fnote{$\Delta \Pi$ (£m) is the change in private returns, in millions of pounds, from adding 50 buses to a garage relative to vacating the site (i.e.\ selling the plot at market value), holding the garage infrastructure and operator-bus network fixed. Private returns are defined in \eqref{eq:UP1} and decompose into two components: the \emph{Structural} term, which captures the average per-bus value of operating from that garage, and the \emph{DM correction}, which adjusts for the change in dead-mile costs as the 50 additional buses are drawn from marginal routes that may have different deadhead driving distances. $B^{\text{pre}}$ denotes the number of buses stationed at the garage before the capacity expansion; utilization is defined as $B^{\text{pre}}/\text{Capacity}$. Excess capacity defined as $< 80\%$ utilization at baseline. See Section~\ref{SS:urbanpolicy1} for further details.}
+\end{table}
+
+\begin{table}[!tb]
+\caption{Drivers of private returns to capacity expansion}\label{tab:cap-expansion-reg}
+\centering
+\resizebox{0.9\textwidth}{!}{%
+\input{\tables/capacity-expansion-reg.tex}}
+\fnote{OLS regressions with $\Delta \hat{\Pi}_{ij}$ \eqref{eq:UP1} as dependent variable, for all 62 garages in the sample with observed capacity that are not vacant and have buses stationed in 2019. Columns (1)--(3) use the nominal return to a 50-bus capacity expansion. Columns (4)--(6) deflate the dependent variable by the 2019 demeaned borough-level house price index, reducing the sample to the 55 garages located within the Greater London boundary for which borough-level house price data are available. Columns (7)--(9) adjust with more disaggregated ward-level house prices from HM Land Registry Price Paid Data from 2017, also demeaned across the observations in the sample.}
+\end{table}
+
+
+\clearpage
+\section{Capacity orthogonality}\label{A:capacity}
+\setcounter{table}{0}
+\renewcommand{\thetable}{B\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{B\arabic{figure}}
+The structural garage value function in \eqref{eq:garagestruc} depends on 
+garage capacity through the bus assignment rule \eqref{eq:assignment_buses}, 
+but capacity is excluded from the reduced-form utility function 
+\eqref{eq:garagevalue_detail} because it is garage-specific and therefore 
+cancels from utility differences across operators in the reversed-choice 
+framework. The identifying assumption is that capacity is orthogonal to the 
+operator-specific network variables included in estimation. We test this 
+assumption using the following procedure.
+
+Capacity data (Peak Vehicle Requirement, PVR) is available for 61 out of 91 
+garages in the estimation sample. For each garage, we compute the 
+time-series average of each network variable across all changedates in the 
+sample period, yielding one observation per garage. We then regress capacity 
+on the averaged network variables and report simple correlations, partial 
+correlations, and OLS regression results.
+
+Table~\ref{T:capacity_correlation} reports the pairwise correlation matrix. 
+The correlations between capacity and the network variables are small in 
+magnitude: 0.088 with \textit{RouteStarts10Min}, $-0.116$ with 
+\textit{MindurOwnGar}, 0.021 with \textit{CompGar10Min}, and $-0.200$ with 
+\textit{NrGarages}. The correlation with the incumbency variable 
+\textit{exp(YearsInc)} is negligible ($-0.002$). The largest off-diagonal 
+correlations are between the network variables themselves rather than between 
+any network variable and capacity, confirming that capacity is not the 
+primary source of correlation in the data.
+
+\begin{table}[!tb]
+\caption{Pairwise correlation matrix: capacity and network 
+variables\label{T:capacity_correlation}}
+\resizebox{\textwidth}{!}{%
+\input{\tables/capacity-correlation-matrix.tex}}
+\fnote{Pairwise correlations computed across 61 garages with available 
+PVR capacity data, using time-series averages of network variables over 
+the full sample period 1995--2019. \textit{RouteStarts10Min}, 
+\textit{MindurOwnGar}, \textit{CompGar10Min}, and \textit{NrGarages} 
+are the network variables used in the baseline specification 
+\eqref{eq:garagevalue_detail}. \textit{exp(YearsInc)} is the incumbency 
+variable.}
+\end{table}
+
+Table~\ref{T:capacity_orthogonality} reports OLS regressions of capacity 
+on the network variables, with and without pairwise interactions. In the 
+main effects specification, the included regressors jointly explain less 
+than 1 percent of the variation in capacity (adjusted $R^2 = 0.008$). 
+Neither \textit{RouteStarts10Min}, \textit{MindurOwnGar}, nor 
+\textit{CompGar10Min}---the variables most directly relevant to the spatial 
+rent estimates---are statistically significant. The only significant 
+association is with \textit{NrGarages} ($\hat{\beta} = -12.5$, $p<0.05$): 
+larger operators tend to occupy smaller garages on average. Adding all pairwise interactions raises the 
+adjusted $R^2$ to 0.083, driven by a significant 
+\textit{CompGar10Min}$\times$\textit{MindurOwnGar} interaction 
+($\hat{\beta} = -3.159$, $p<0.05$), suggesting that garages in competitively 
+isolated but network-peripheral locations tend to be somewhat smaller. 
+However, the low adjusted $R^2$ even in the interaction specification 
+indicates this is a second-order pattern.
+
+\begin{table}[!tb]
+\caption{Orthogonality of garage capacity to network 
+variables\label{T:capacity_orthogonality}}
+\centering
+\input{\tables/capacity-orthogonality.tex}
+\fnote{OLS regressions of garage capacity (Peak Vehicle Requirement) on 
+the network variables used in the structural estimation. Each variable is 
+averaged over the full sample period for each garage. The main effects 
+specification includes each network variable separately; the interactions 
+specification adds all pairwise products. Standard errors in parentheses. 
+Statistical significance: + $p<0.1$, * $p<0.05$, ** $p<0.01$, 
+*** $p<0.001$.}
+\end{table}
+
+\begin{figure}[!tb]
+\caption{Garage capacity versus other garage utility drivers\label{F:capacity_orthogonality}}
+\includegraphics[width=\textwidth]{\plots/capacity-orthogonality.pdf}
+\fnote{Each panel plots garage capacity (Peak Vehicle Requirement, 
+vertical axis) against one network variable (horizontal axis), using 
+garage-level time-series averages over 1995--2019 for 61 garages with 
+available PVR data. The red line shows the OLS fit with a 95 percent 
+confidence band. Panels correspond to \textit{RouteStarts10Min} (A), 
+\textit{MindurOwnGar} (B), \textit{CompGar10Min} (C), and 
+\textit{NrGarages} (D).}
+\end{figure}
+
+Figure~\ref{F:capacity_orthogonality} illustrates the regression results 
+visually: the scatter plots show no systematic relationship between 
+capacity and any of the four network variables, with flat OLS fits and 
+wide confidence bands throughout. Taken together, the evidence supports 
+the identifying assumption that excluding capacity from the discrete choice 
+estimation does not bias the spatial rent estimates. 
+
+\clearpage
+
+
+\section{Can market-sharing explain unrealized garage 
+transactions?}\label{A:collusion}
+\setcounter{table}{0}
+\renewcommand{\thetable}{C\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{C\arabic{figure}}
+This appendix explores whether unrealized profitable garage transactions 
+show patterns consistent with collusive market-sharing. This line of inquiry 
+is motivated by the UK Competition Commission's 2011 finding of operator 
+conduct whereby firms avoid competing in each other's ``Core Territories,'' 
+leading to geographic market segregation at an estimated annual cost of 
+\textsterling 115m--\textsterling 305m to UK consumers and taxpayers. The 
+investigation explicitly excluded London and Northern Ireland, but expressed 
+concern that such behavior might be more widespread.
+
+\subsection*{Setup}
+
+For each garage-changedate pair where no ownership change took place, we 
+ask whether another operator would have benefited more from the garage than 
+the incumbent. Let $\mathcal{J}^{N}_t$ denote the set of garages where no 
+ownership change took place during changedate $t$, and let $\mathcal{J}^N 
+= \{\mathcal{J}_t^N\}_{t}$ collect these sets across all changedates. For 
+each triple $(t, j \in \mathcal{J}^N, i \in \mathcal{N}_t)$, we compute 
+the deterministic utility $\hat{f}_{ijt}$ based on the model estimates 
+in \eqref{eq:garagevalue_detail}, excluding combinations where the outside 
+option is either the choice alternative or the incumbent to avoid ascribing 
+behavioral attributes to the market. The full set $\mathcal{J}^N$ contains 
+66,964 operator-garage-changedate triples. Since $\Pi_{ijt}$ and 
+$\Pi_{I_{jt}}$ are independently Gumbel-distributed with means 
+$\hat{f}_{ijt}$ and $\hat{f}_{I_{jt}}$ and scale parameter 1, their 
+difference follows a Logistic distribution with mean $\hat{f}_{ijt} - 
+\hat{f}_{I_{jt}}$ and variance 1. The estimated utility excess is defined as
+\begin{equation}\label{eq:psi_app}
+\hat{\psi}_{ijt} = \big(\hat{f}_{ijt} - \hat{f}_{I_{jt}}\big) 
+\mathbf{1}\big(\hat{f}_{ijt} - \hat{f}_{I_{jt}} \geq \tau\big)
+\end{equation}
+with $\tau = 0.721$ the 95th percentile of the standardized Logistic 
+distribution. Whenever $\hat{\psi}_{ijt} > 0$, we can conclude with 95 
+percent confidence that operator $i$ has higher utility for garage $j$ than 
+the incumbent at that date, accounting for the unexplained component of the 
+utility function. The main analysis focuses on the subset $\mathcal{J}^{Nmax}$, 
+which retains only the operator with the highest predicted utility for each 
+garage-changedate pair, yielding 6,308 triples and avoiding double-counting 
+when multiple operators have positive $\hat{\psi}_{ijt}$ for the same 
+garage-changedate pair.
+
+Under a market-sharing interpretation, $\hat{\psi}_{ijt}$ provides a lower 
+bound on the expected punishment required to deter the highest-value operator 
+from entering: cases where a profitable transaction did not occur despite 
+another operator having strictly higher utility are consistent with that 
+operator being deterred by the threat of retaliation. We treat 
+$\hat{\psi}:\hat{\psi}>0$ as measuring the height of the implied punishment and 
+$\mathbf{1}(\hat{\psi}>0)$ as measuring its probability. We maintain that 
+observed ownership changes reflect competitive behavior---so that the 
+structural estimates are uncontaminated by collusion---and that absent a 
+market-sharing agreement the highest-value firm enters, as established in 
+Section~\ref{SS:entry}. We remain agnostic about the exact form of any 
+agreement, which could range from reciprocal bilateral arrangements to 
+unilateral punishment threats \citep[see][]{Porter1999, belleflamme2004market}.
+
+\subsection*{Number of active firms}
+
+Table~\ref{T:psi_reg_nalt} regresses $\hat{\psi}_{ijt}$ and 
+$\mathbf{1}(\hat{\psi}_{ijt}>0)$ on the number of active operators at each 
+changedate. The raw correlations require care in interpretation: more active 
+operators generate more operator-garage-changedate triples, mechanically 
+inflating both the count and magnitude of positive $\hat{\psi}$ values 
+through an order statistic argument. The results are largely inconsistent 
+with a simple market-sharing interpretation. For the height of punishment, 
+the coefficient on the number of alternatives is positive and significant 
+across all specifications including without year fixed effects (columns 1--4), 
+implying that periods with more active firms are associated with larger 
+implied punishment values---the opposite of what the theory predicts if 
+more firms make collusion harder to sustain. For the probability of a 
+positive $\hat{\psi}$, the coefficient is negative without year fixed 
+effects in the full sample (column 5, $p<0.001$), consistent with 
+coordination becoming harder as more firms enter, but turns positive and 
+significant once year fixed effects are included or when restricting to 
+$\mathcal{J}^{Nmax}$ (columns 6--8). With a model specification that we circulated in a working paper, we found a negative and significant coefficient on the number of 
+alternatives for the probability of punishment without year fixed effects, 
+and an insignificant coefficient for the height---a pattern more consistent 
+with the market-sharing prediction, though still not robust across all 
+samples. Results for this alternative specification are available 
+from the authors upon request. These sign reversals across specifications 
+and the general sensitivity of the results to the structural model 
+parameterization caution against placing weight on the number-of-firms 
+results as evidence of market-sharing behavior. 
+
+\begin{table}[!tb]
+\centering
+\caption{Regressions of punishment on the number of 
+alternatives\label{T:psi_reg_nalt}}
+\begin{adjustbox}{max width = \textwidth}
+\input{\tables/psi-reg-nalt.tex}
+\end{adjustbox}
+\fnote{Statistical significance: + $p<0.1$, * $p<0.05$, ** $p<0.01$, 
+*** $p<0.001$. $\mathcal{J}^{N}$ denotes the full sample of 66,964 
+operator-garage-changedate triples where no ownership change took place; 
+$\mathcal{J}^{Nmax}$ retains only the operator with the highest predicted 
+utility for each garage-changedate pair, yielding 6,308 triples. 
+$\hat{\psi}:\hat{\psi}>0$ denotes regressions explaining the magnitude of the implied 
+punishment conditional on it being positive; $\mathbf{1}(\hat{\psi}>0)$ denotes 
+regressions explaining the probability of a positive implied punishment.}
+\end{table}
+
+
+Figure~\ref{F:TimeSeries} plots yearly averages of $\hat{\psi}$ and 
+$\mathbf{1}(\hat{\psi}>0)$ alongside years of significant entry, defined 
+as the entry of at least one operator who remained active for at least five 
+years. In the full sample (panels a--b), the probability of punishment 
+broadly tracks the entry pattern---declining during high-entry periods and 
+rising during the stable oligopoly period of 2001--2008---while the height 
+of punishment also peaks in the low-entry period but with less pronounced 
+variation. In the restricted sample $\mathcal{J}^{Nmax}$ (panels c--d), 
+the height of punishment is more clearly elevated during the stable period, 
+but the punishment probability declines steadily over time and does not 
+increase during the low-entry period, contrary to the market-sharing 
+prediction. Overall, the time-series patterns are mixed and do not 
+uniformly support the collusion interpretation.
+
+
+\begin{figure}[!tb]
+\caption{Punishment and relation to firm entry\label{F:TimeSeries}}
+\centering
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{mean $\hat{\psi}(\hat{\psi}>0)$, all $ijt$}
+\includegraphics[width=\textwidth]{\plots/time-series-psi-entry/mean-yearly-selected-all.pdf}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{$1(\hat{\psi}>0)$, all $ijt$}
+\includegraphics[width=\textwidth]{\plots/time-series-psi-entry/nonzero-yearly-selected-all.pdf}
+\end{minipage}
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{mean $\hat{\psi}(\hat{\psi}>0)$, max-$i$ per $jt$}
+\includegraphics[width=\textwidth]{\plots/time-series-psi-entry/mean-yearly-selected-highest.pdf}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+\centering
+\subcaption{$1(\hat{\psi}>0)$, max-$i$ per $jt$}
+\includegraphics[width=\textwidth]{\plots/time-series-psi-entry/nonzero-yearly-selected-highest.pdf}
+\end{minipage}
+\fnote{Yearly averages of the estimated punishment when positive (panels a 
+and c) and the punishment probability (panels b and d). Panels (a) and (b) 
+average across all entries of $\mathcal{J}^N$; panels (c) and (d) restrict 
+to the highest-utility operator for each garage-changedate pair 
+($\mathcal{J}^{Nmax}$). Vertical bars denote years with significant entry, 
+defined as the entry of at least one operator who remained active for at 
+least five years.}
+\end{figure}
+
+\subsection*{Spatial isolation from competitor garages}
+
+Table~\ref{T:psi_reg_dist2comp} relates $\hat{\psi}_{ijt}$ to the spatial 
+isolation of garages from competitor networks. Garages more isolated from 
+competing garages---measured by either the minimum or average drive time to 
+a competitor garage---are associated with both a higher probability of 
+positive $\hat{\psi}$ and a larger magnitude conditional on being positive, 
+across all specifications and robust to year fixed effects. The competitor 
+distance variables explain 6--9 percent of the variation in $\hat{\psi}$. 
+This pattern is directly consistent with the local monopoly rent mechanism 
+estimated in Section~\ref{S:Results}: operators with more isolated garages 
+earn higher expected route auction revenues and therefore face stronger 
+incentives to protect their position from entry. The fact that $\hat{\psi}$ 
+correlates strongly with the spatial rent variables that drive the structural 
+estimates supports the interpretation that the unrealized transactions reflect 
+economically meaningful forces rather than estimation noise, and this finding 
+is robust to the structural model specification.
+
+\begin{table}[!tb]
+\centering
+\caption{Regressions of punishment on distance to competitors' 
+garages\label{T:psi_reg_dist2comp}}
+\begin{adjustbox}{max width = \textwidth}
+\input{\tables/psi-reg-dist2comp.tex}
+\end{adjustbox}
+\fnote{Statistical significance: + $p<0.1$, * $p<0.05$, ** $p<0.01$, 
+*** $p<0.001$. $\mathcal{J}^{N}$ denotes the full sample of 66,964 
+operator-garage-changedate triples where no ownership change took place; 
+$\mathcal{J}^{Nmax}$ retains only the operator with the highest predicted 
+utility for each garage-changedate pair, yielding 6,308 triples. 
+$\hat{\psi}:\hat{\psi}>0$ denotes regressions explaining the magnitude of the implied 
+punishment conditional on it being positive; $\mathbf{1}(\hat{\psi}>0)$ denotes 
+regressions explaining the probability of a positive implied punishment.}
+\end{table}
+
+Figure~\ref{F:frequenciesOOS} offers a suggestive picture of the winners 
+and losers from a reallocation of garages to their highest-utility operators. 
+Smaller operators retain a similarly modest footprint in the counterfactual, 
+confirming that the results are not driven by fringe operators becoming 
+dominant players. At the same time, virtually all smaller operators expand 
+somewhat. The most striking reallocation concerns Arriva, which shrinks from 
+the largest operator---accounting for roughly 25 percent of entries in the 
+observed network---to a fringe player in the counterfactual. Conversely, 
+GoAhead, ComfortDelGro, and Abellio all more than double their garage shares. 
+To the extent that these reassignments reflect garages blocked by 
+market-sharing agreements, this pattern is consistent with Arriva being a 
+net beneficiary of the collusive arrangement while GoAhead, ComfortDelGro, 
+and Abellio are the operators most constrained by it.
+
+The spatial rent model is identified entirely from observed ownership 
+transitions, without using procurement bid data, and is agnostic about 
+competitive conduct at the auction stage. The only assumption required is 
+that transactions that do take place allocate garages to the operator that 
+values them most---the model makes no use of information about transactions 
+that did not occur. Operator-specific deviations from the model's predictions 
+likely reflect a combination of unobserved operational considerations and 
+firm-specific strategic behavior that the five network variables do not fully 
+capture, and we stop short of claiming these results as unequivocal evidence 
+of collusion.
+
+\clearpage
+\section{Validating the route-garage assignment equation}
+\label{A:assignment_validation}
+\setcounter{table}{0}
+\renewcommand{\thetable}{D\arabic{table}}
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{D\arabic{figure}}
+
+This appendix validates the bus-garage assignment equation~\eqref{eq:assignment_buses} against observed
+route-garage assignments in the last tender round. The sample consists of
+all routes for which an operating garage is recorded in the tender data and
+for which the observed garage has a known PVR capacity, yielding 584
+route-operator pairs across eight operators.
+ 
+For each operator $i$, let $\mathcal{J}_i$ denote the set of garages owned
+by $i$ with known PVR capacity $K_j$, and let $\mathcal{R}_i$ denote the
+corresponding set of routes with known vehicle requirement $q_r$. All pairs
+$(j,r)\in\mathcal{J}_i\times\mathcal{R}_i$ are ordered by drive time from
+garage $j$ to route $r$'s start stop ascending, with ties broken by $q_r$
+descending. The algorithm iterates through this queue: route $r$ is assigned
+to garage $j$ if $r$ is not yet assigned and $j$'s remaining capacity
+$\tilde{K}_j\geq q_r$, after which $\tilde{K}_j$ is decremented by $q_r$.
+Each route is assigned exclusively to a single garage; routes for which no
+garage owned by operator $i$ retains sufficient remaining capacity are left
+unassigned. The procedure runs separately for each operator, so that garages
+are never shared across operators.
+ 
+Two fit criteria are reported. \textit{Exact match} requires that the
+predicted and observed garage codes agree. The \textit{within 2 minutes}
+criterion relaxes this to a cost-equivalence standard: the prediction is
+deemed acceptable if the predicted garage's dead-mileage to the route
+differs from the observed garage's by at most two minutes. This tolerance
+is evaluated separately under the three dead-mile measures used throughout
+the paper---\emph{Dead Miles (Start)}, \emph{Dead Miles (StartStop)}, and
+\emph{Dead Miles (Stopover)}---so that a mismatch in garage identity that
+carries no meaningful cost implication is not counted as a failure.
+ 
+Tables~\ref{tab:assignment_validation} and~\ref{tab:assignment_validation_30perc}
+report results by operator under two capacity assumptions. Each table contains
+two panels. The upper panel (\textit{Exclusive route--garage mapping}) imposes
+that each route's entire vehicle requirement is met from a single garage,
+consistent with how TfL routes are contracted as indivisible units. The lower
+panel (\textit{Routes can spread over garages}) relaxes this, allowing a
+route's buses to be distributed across multiple garages of the same operator,
+with exact match defined as the observed garage appearing anywhere in the
+predicted allocation. Table~\ref{tab:assignment_validation} uses observed
+garage PVR capacities; Table~\ref{tab:assignment_validation_30perc} inflates
+all capacities by 30 percent.\footnote{This is done as we observe that the baseline assignment of routes to garages implies that, for the garages in the sample, the total route PVR exceeds the total garage capacity PVR by 30 percent, so we want to understand whether this has consequences for the fit. Total route PVR can exceed garage capacity because of the way routes are run---e.g., night routes and day routes alternating, and buses rotating through the garage, or garages sometimes being parked too the brim--- or measurement error.}
+ 
+The baseline specification---exclusive route assignment at observed
+capacities---yields an overall exact match rate of 47.8 percent, rising to
+63.4 percent (\emph{Dead Miles (Start)}), 71.7 percent
+(\emph{Dead Miles (StartStop)}), and 64.4 percent (\emph{Dead Miles
+(Stopover)}) under the within-two-minute criterion. Allowing route splitting
+does not improve fit and slightly reduces exact match (46.7 percent overall),
+consistent with capacity fragmentation: greedily placing partial bus
+requirements across garages leaves small residual capacities that cannot
+accommodate subsequent routes. Expanding capacity by 30 percent raises exact
+match modestly to 49.1 percent (exclusive) and 48.6 percent (splitting),
+confirming that binding capacity constraints account for a share of
+misassignments but are not the primary source of prediction error.
+Operator-level rates range from 88.9 percent exact matches for TowerTransit
+to 26--28 percent for Stagecoach, whose route PVR requirements substantially
+exceed its recorded garage capacity. The within-two-minute rates are
+consistently higher than exact match rates across all operators and
+specifications, indicating that prediction errors are predominantly small in
+dead-mileage terms. We adopt the baseline exclusive specification for all
+counterfactual exercises, as it is institutionally appropriate and performs no
+worse than the alternatives.
+ 
+\begin{table}[!tb]
+\caption{Validation of the route-garage assignment equation}\label{tab:assignment_validation}
+\centering
+\input{\tables/assignment-validation-baseline.tex}
+\fnote{The assignment equation~\eqref{eq:assignment_buses} assigns routes
+exclusively to garages owned by the same operator, sequentially by minimum
+drive time to the route start stop subject to garage PVR capacity. Routes
+are treated as indivisible: the full vehicle requirement must be met from a
+single garage. The sample covers the last tender round, restricted to routes
+with an observed operating garage of known capacity (584 routes, 8
+operators). \textit{Exclusive route--garage mapping}: each route is assigned
+to at most one garage; exact match requires agreement of predicted and
+observed garage codes. \textit{Routes can spread over garages}: a route's
+buses may be distributed across multiple garages of the same operator; exact
+match requires the observed garage to appear in the predicted allocation.
+\textit{Within 2 min} = the predicted garage's dead-mileage differs from the
+observed garage's by at most 2 minutes, evaluated under three measures: drive
+time to the route start stop (\emph{Dead Miles (Start)}), average of start
+and end stop (\emph{Dead Miles (StartStop)}), and mean over intermediate
+stopover stops (\emph{Dead Miles (Stopover)}).}
+\end{table}
+ 
+\begin{table}[!tb]
+\caption{Validation of the route-garage assignment equation (garage capacity $+30\%$)}\label{tab:assignment_validation_30perc}
+\centering
+\input{\tables/assignment-validation-capacity-x1.3.tex}
+\fnote{As Table~\ref{tab:assignment_validation}, except that all garage PVR
+capacities are scaled up by 30 percent prior to assignment. This robustness
+check assesses sensitivity to capacity measurement error and to the share of
+unassigned routes attributable to binding capacity constraints rather than
+to geographic mismatch.}
+\end{table}
+
+
+\clearpage
+
+
+\section{Private returns to capacity expansion---simulation details}\label{A:Capacity_expansion_details}
+This section provides additiconal details underlying the measurement of the private returns to investing in capacity (Section \ref{SS:UP1}). The exercise computes for each garage
+$j$ owned by operator $i$, the marginal route(s) drawn in by increasing the capacity of that garage by 50 buses, and combines this with the estimated garage valuations
+$\hat{\Pi}_{ij}$ to recover the per-bus value of additional capacity. It relies on 
+the assignment technology of equation~\eqref{eq:assignment_buses} to 
+translate a capacity change into a predicted change in route stationing. 
+The empirical validity of this step is supported by the validation in 
+Appendix~\ref{A:assignment_validation}, where the same equation recovers 
+the correct operating garage for 46 percent of routes exactly, and for 
+62--70 percent of routes once a two-minute dead-mileage tolerance is 
+applied---within which cost differences between predicted and observed 
+assignments are negligible.
+
+Measuring returns to investment in monetary terms requires translating 
+structural utility into procurement costs. Since garage transaction prices 
+are not observed, we match total predicted utils to observed TfL auction 
+revenues in the same period, yielding an implied revenue per util $\kappa$ 
+from the logsum formula applied to the preferred specification. Since the 
+garage value function \eqref{eq:garagestruc} is derived from expected 
+auction profits, utility ratios map to profit ratios up to the logit scaling 
+factor $\sigma$, which is common across operators and garages under 
+homoskedasticity. Using average annual TfL route auction revenues 
+$\bar{R} = \text{\textsterling}273\text{m}$ over 2004--2019:
+$$\kappa = \bar{R} \Big/ \sum_{ijt} \exp(\hat{f}_{ijt}) = 
+\text{\textsterling}1{,}232{,}657 \text{ per util}$$
+where the denominator is the logsum of predicted utilities across all 
+operator-garage-changedate triples in the estimation sample during the same period.\footnote{In 
+discrete choice models with an identified price coefficient $\alpha$, utils 
+convert to monetary values at rate $1/\alpha$. Here $\alpha$ is not 
+identified from garage choices alone, so we exploit the structural link 
+between garage utility and auction profits: utility ratios map to profit 
+ratios with $\sigma$ cancelling in the ratio.} We apply $\kappa$ throughout 
+the counterfactual analysis to ensure structural utility differences and 
+reduced-form dead miles costs are expressed on a common monetary scale 
+anchored to observed TfL procurement payments.
+
+\begin{figure}[!tb]
+\caption{Role of capacity in Urban policy 1}\label{F:pi_bus_capacity}
+\includegraphics[width=\textwidth]{\plots/pi-bus-capacity.pdf}
+\end{figure}
+
+For the structural term and dead miles correction in \eqref{eq:UP1} to be 
+internally consistent, both must measure the change in operator profit per 
+additional bus in the same monetary units. The dead miles correction is in 
+\textsterling m by construction from procurement bid data; the structural 
+term is converted via $\kappa$ derived from the same revenues, so both 
+share a common monetary scale under the assumption that TfL auction revenues 
+are the sole source of operator value. The remaining identification issue 
+concerns the normalization of $\hat{\pi}_{ij}^{bus}$: since structural utility 
+is measured relative to the outside option, a negative structural term means 
+only that the operator values the garage less than the market, not that 
+capacity expansion destroys value in absolute terms. The sum 
+$\Delta\hat{\Pi}_{ij}$ therefore identifies a valid ranking across garages 
+as long as the outside option value per bus does not vary systematically 
+with the network variables that drive $\hat{\pi}_{ij}^{bus}$ --- precisely the 
+orthogonality condition that underlies the structural estimates and is 
+verified empirically in Appendix~\ref{A:capacity}.\footnote{We also assess the two components separately, which does not require them to lie on the same scale.}
+
+Moreover, it must hold that 
+$\hat{\pi}_{ij}^{bus}$ reflects the average per-bus profit at 
+the baseline dead miles, so that the correction term adjusts for deviations 
+of marginal routes from this baseline. A necessary condition is that 
+$\hat{\pi}_{ij}^{bus}$ is uncorrelated with garage capacity after conditioning 
+on network variables — otherwise the division by $B_{jt}$ introduces a 
+mechanical bias. We verify this empirically (see Figure~\ref{F:pi_bus_capacity}). The per-bus value  negatively correlated with capacity in the full sample, but capacity explains less than five percent of the variation. Moreover, when excluding three outliers (small garages with much higher $\hat{\pi}_{ij}^{bus}$ than the other garages), capacity is positively correlated with per-bus value. This confirms that the per-bus 
+measure reflects genuine network position heterogeneity rather than a 
+capacity artifact, so that we can rely on $\hat{\pi}_{ij}^{bus}$ without mechanically disadvantaging larger garages.
+
+
+
+
+\section{Constrained Welfare Reallocation Experiments\label{S:realloc-experiment}}
+
+\subsection{Setup}
+
+Let $\mathcal{J}$ denote the set of bus garages and $\mathcal{I}$ the set of
+operators active in the 2019 market snapshot.  An \emph{allocation}
+$\alpha: \mathcal{J} \to \mathcal{I}$ assigns each garage to exactly one
+operator. We refer to the structural model defined in \eqref{eq:garagevalue_detail}, and we will recomputed operator-dependent covariates (subscript $i$) for
+each proposed allocation $\alpha$.  Structural parameters
+$(\theta_1,\ldots,\theta_6)$ are held fixed throughout all counterfactual experiments.
+
+The social planner's objective is to minimise total industry profit:
+%
+\begin{equation}
+  \min_{\alpha:\,\mathcal{J}\to\mathcal{I}} \;
+  \sum_{j \in \mathcal{J}} \tilde{\Pi}_{\alpha(j),\,j}(\alpha).
+  \label{eq:planner}
+\end{equation}
+
+which is the negative of our welfare function in the optimization algorithm.
+
+\begin{equation}
+    \max_{\alpha:\,\mathcal{J}\to\mathcal{I}} \; W(\alpha) \equiv -\sum_{j \in \mathcal{J}} \tilde{\Pi}_{\alpha(j),\,j}(\alpha)\label{eq:planner-welfare}
+\end{equation}
+
+%
+We solve \eqref{eq:planner-welfare} by simulated annealing (SA).  Three
+experiment variants impose progressively tighter operational constraints.
+
+\subsection{Layer~0 - Unconstrained Reallocation}
+
+The reference experiment imposes no operational constraints.  A proposed
+swap of garage $j$ from incumbent $I$ to operator $i$ is always
+admissible.  Buses and route contracts are treated as transferring
+costlessly with the garage, so no adjustment to \eqref{eq:pi_hat_alloc}
+is required.  This variant corresponds to a regulator that can costlessly
+reassign full bundles (infrastructure, fleet, and route licences) to
+whoever values them most.
+
+\subsection{Layer~1 - Fixed Bus Stock}
+
+Layer~1 relaxes the frictionless-transfer assumption by fixing each
+operator's total bus fleet at its baseline level.
+
+\paragraph{Bus stock.}
+Each operator $i$'s fleet is set to
+$\bar{B}_i = \sum_{j \in \mathcal{J}^0_i} \text{cap}(j)$,
+where $\mathcal{J}^0_i$ is operator $i$'s baseline garage set and
+$\text{cap}(j)$ is the PVR capacity of garage $j$.  Capacity is measured
+as the maximum of the physical garage capacity (from survey data) and the
+total PVR of routes assigned to $j$ in the last tender round.
+$\bar{B}_i$ is fixed for the duration of the experiment.
+
+\paragraph{Route inheritance.}
+When garage $j$ transfers from incumbent $I$ to operator $i$, all routes
+currently served from $j$ are reassigned to $i$.  Formally, if
+$\mathcal{R}_j(\alpha)$ denotes the set of routes assigned to garage $j$
+under allocation $\alpha$ (determined by a greedy proximity rule,
+equation \eqref{eq:assignment_buses} in the main text), then after the
+transfer:
+\[
+  \alpha(r) \leftarrow i \quad \forall\, r \in \mathcal{R}_j(\alpha).
+\]
+Route-to-garage assignments for $i$ and $I$ are then recomputed by
+proximity, holding all other operators' assignments fixed.
+
+\paragraph{Feasibility constraint.}
+A proposed swap $j: I \to i$ is admissible only if operator $i$'s spare
+bus capacity covers the inherited PVR:
+\begin{equation}
+  \bar{B}_i \;\geq\; \text{PVR}_i(\alpha) + \sum_{r \in \mathcal{R}_j(\alpha)} \text{pvr}(r),
+  \label{eq:feasibility_L1}
+\end{equation}
+where $\text{PVR}_i(\alpha) = \sum_{r:\,\alpha(r)=i} \text{pvr}(r)$ is
+operator $i$'s current total PVR commitment and $\text{pvr}(r)$ is the
+peak vehicle requirement of route $r$.  Proposals violating
+\eqref{eq:feasibility_L1} are rejected.
+
+\subsection{Layer~2 - Fixed Bus Stock with Dead-Mile Penalty}
+
+Layer~2 retains the feasibility constraint~\eqref{eq:feasibility_L1} and
+adds an explicit operational cost for routes inherited at a garage whose
+endpoint geography is misaligned with operator $i$'s existing network.
+
+\paragraph{Penalty term.}
+Let $\text{dm}(j, r)$ denote the OSRM drive time (minutes) from garage
+$j$ to the start--stop endpoints of route $r$.  The structural utility at
+garage $j$ for the receiving operator $i$ is adjusted to
+\begin{equation}
+  \tilde{\Pi}^{(2)}_{ij}(\alpha)
+    = \tilde{\Pi}_{ij}(\alpha)
+    + \theta_{\text{DM}} \cdot
+        \frac{1}{|\mathcal{R}_j(\alpha)|}
+        \sum_{r \in \mathcal{R}_j(\alpha)} \text{dm}(j, r),
+  \label{eq:pi_hat_L2}
+\end{equation}
+where $\theta_{\text{DM}} \leq 0$.  The term represents the per-bus-unit
+cost of operating routes that come with garage $j$ but whose endpoints
+are distant, averaged across those routes.
+
+\paragraph{Calibration of $\theta_{\text{DM}}$.}
+The monetary bridge (equation~\ref{eq:monetize} in the main text) links
+the logit utility scale to pounds:
+\[
+  \pi^{\text{mon}}_m = \hat{\pi}^* \cdot |\zeta| \cdot B,
+\]
+where $\zeta = \partial\,\text{AcceptedBid}/\partial\,\text{DeadMiles}$
+is the dead-miles coefficient from the preferred dead-miles regression
+(equation~\ref{eq:dead_miles_reg}, model~(2): $\zeta \approx -\pounds19{,}000$
+per dead-mile-minute), and $B$ is garage capacity in buses.  Converting
+the reduced-form estimate to structural utility units:
+\begin{equation} 
+  \theta_{\text{DM}} = \frac{\zeta}{|\hat{\zeta}| \cdot \bar{B}},
+  \label{eq:theta_DM}
+\end{equation}
+where $\bar{B}$ is a representative garage capacity (median across the
+sample).  Equation~\eqref{eq:theta_DM} ensures that one additional
+dead-mile-minute translates into the same reduction in $\tilde{\Pi}^{(2)}$
+as one pound of bid cost implies in the structural model.
+
+\paragraph{Locality.}
+The penalty in \eqref{eq:pi_hat_L2} is specific to garage $j$ and the
+routes $\mathcal{R}_j(\alpha)$ that follow it.  It does not affect the
+profit terms of any other garage, so the SA local-update structure (where
+a single swap modifies only a small subset of the objective) is
+preserved.
+
+\subsection{Computational Details}
+
+All three variants are solved by Metropolis--Hastings simulated annealing
+with geometric cooling:
+\[
+  T_k = T_0 \cdot \alpha^k, \qquad \alpha = 0.9999,
+\]
+where $T_0$ is calibrated so that approximately 50\% of feasible proposals
+are accepted at the start of the search.  For Layer~1 and Layer~2,
+$T_0$ is estimated from the empirical distribution of $|\Delta W|$ over
+feasible probe swaps.
+
+At each iteration a garage is drawn uniformly at random and reassigned to
+a uniformly random alternative operator.  A proposal is accepted with
+probability $\min(1, \exp(\Delta W / T_k))$, subject to the feasibility
+gate~\eqref{eq:feasibility_L1} for Layers~1 and~2.  The best state
+(highest $W$) encountered across all iterations is returned.  Results are
+verified with multi-restart runs; the best solution across restarts is
+reported.
+
+Table~\ref{tab:experiment_variants} summarises the three variants.
+
+\begin{table}[h]
+\centering
+\caption{Experiment variants: assumptions on operational constraints}
+\label{tab:experiment_variants}
+\begin{tabular}{lccc}
+\hline
+ & Layer~0 & Layer~1 & Layer~2 \\
+\hline
+Buses transfer with garage       & Yes & No  & No  \\
+Routes follow garage (Reading~B) & ---  & Yes & Yes \\
+Bus-stock feasibility gate       & No  & Yes & Yes \\
+Dead-mile penalty $\theta_{\text{DM}}$ & No & No & Yes \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent
+Layer~0 provides an upper bound on achievable welfare gains: it asks what
+the optimal allocation would be if the regulator could reassign full
+operational bundles at zero cost.  Layer~1 introduces the realistic
+constraint that operators cannot instantly field buses they do not own.
+Layer~2 prices the operational friction of inheriting routes whose
+geography does not fit the new operator's network.
+
+\subsection{Welfare Decomposition by Covariate Channel}
+
+Because the structural utility \eqref{eq:pi_hat_alloc} is linear in
+covariates, the total welfare gain $\Delta W = W^* - W^0$ can be
+decomposed exactly into additive contributions from each covariate
+channel.
+
+\paragraph{Setup.}
+Let $x_{kj}^0$ denote the value of covariate $k$ at garage $j$ under the
+2019 baseline allocation, and $x_{kj}^*$ its value under the SA-optimal
+allocation.  Define the per-garage change
+\[
+  \Delta x_{kj} = x_{kj}^* - x_{kj}^0.
+\]
+Note that operator-level covariates ($\text{MindurOwnGar}$,
+$\text{NrGarages}$, $\text{CompGar10Min}$) are recomputed for each
+allocation, so $\Delta x_{kj}$ captures both direct reassignment effects
+and the network-wide externalities that a swap induces on all garages
+belonging to the operators involved.
+
+\paragraph{Decomposition formula.}
+The planner's objective is $W = -\sum_j \tilde{\Pi}_{\alpha(j),j}(\alpha)$,
+so
+\[
+  \Delta W
+  = W^* - W^0
+  = -\sum_{j} \Delta\tilde{\Pi}_j
+  = -\sum_{j} \sum_{k} \hat{\theta}_k\, \Delta x_{kj}
+  = \sum_{k} \underbrace{\Bigl(-\hat{\theta}_k \sum_{j} \Delta x_{kj}\Bigr)}_{\text{channel-}k\text{ contribution}}.
+\]
+Each term $-\hat{\theta}_k \sum_j \Delta x_{kj}$ is the welfare gain
+attributable to covariate channel $k$, and these terms sum exactly to
+$\Delta W$.  A positive entry means the optimal allocation moves
+covariate $k$ in the direction that reduces total operator profit: for
+channels with $\hat{\theta}_k < 0$ (e.g.\ own proximity, competition)
+this requires $\sum_j \Delta x_{kj} > 0$; for channels with
+$\hat{\theta}_k > 0$ (e.g.\ incumbency decay) it requires
+$\sum_j \Delta x_{kj} < 0$.
+
+\paragraph{HHI.}
+The Herfindahl--Hirschman index is computed on garage counts:
+\[
+  \text{HHI}(\alpha) = \sum_{i \in \mathcal{I}}
+    \left(\frac{|\{j : \alpha(j) = i\}|}{|\mathcal{J}|}\right)^2.
+\]
+It is reported for the baseline and optimal allocations to summarise how
+market concentration changes under each experiment layer; it is not an
+input to the planner's objective.
+
+\begin{figure}[!tb]
+\caption{Solver paths in Reallocation experiment}\label{F:solver-paths}
+\includegraphics[width=\textwidth]{\plots/convergence_realloc_layers.pdf}
+\end{figure}
+
+\end{document}

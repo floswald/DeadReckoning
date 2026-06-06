@@ -76,9 +76,13 @@ _PATH_LIKE_RE = re.compile(r'^[\w\-./]+$')
 
 
 def _looks_like_path(value: str) -> bool:
-    """True if value could be a file-system path fragment."""
-    if not value or "\\" in value or " " in value:
+    """True if value could be a file-system path fragment (possibly containing unexpanded macros)."""
+    if not value or " " in value:
         return False
+    # Value contains only backslash-macro references (will be expanded later)
+    if "\\" in value:
+        # Accept if it also contains path separators or ends with a word segment
+        return "/" in value or value.startswith("..")
     # Explicit path separators / relative markers are definitive
     if "/" in value or value.startswith("..") or value.startswith("."):
         return True
@@ -128,10 +132,15 @@ def _collect_graphicspath(tex_files: list[Path]) -> list[str]:
     return paths  # list of (declaring_dir, path_string)
 
 
-def _expand_macros(ref: str, macros: dict[str, str]) -> str:
-    """Replace \\macroname occurrences in ref with their defined values."""
-    for name, value in macros.items():
-        ref = ref.replace(f"\\{name}", value)
+def _expand_macros(ref: str, macros: dict[str, str], max_depth: int = 8) -> str:
+    """Replace \\macroname occurrences in ref with their defined values, recursively."""
+    for _ in range(max_depth):
+        expanded = ref
+        for name, value in macros.items():
+            expanded = expanded.replace(f"\\{name}", value)
+        if expanded == ref:
+            break
+        ref = expanded
     return ref
 
 
