@@ -28,4 +28,5 @@ testpaths = ["tests"]
 markers = [
     "local: requires local R/Docker installation — not run in CI",
     "docker: requires Docker daemon — subset of local",
+    "llm: real Anthropic API calls — excluded from CI unless ANTHROPIC_API_KEY set",
 ]

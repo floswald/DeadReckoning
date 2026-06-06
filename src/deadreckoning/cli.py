@@ -194,6 +194,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     if args.json:
         print(json.dumps(_to_jsonable(result), indent=2, default=str))
+        if result.needs_author_input:
+            return 2
         return 0 if (not result.error and result.native_ok) else 1
 
     print(f"\n  {'step':<22}  result")
@@ -219,8 +221,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
          f"{len(result.scan.external_paths)} ext path(s)" if result.scan else "")
     _row("RESOLVE",        result.resolve is not None,
          f"{result.resolve.rewrite_count} rewrite(s)" if result.resolve else "")
+    if result.needs_author_input:
+        n_q = len(result.ask.questions) if result.ask else 0
+        _row("ASK",        False, f"{n_q} question(s) — edit QUESTIONS.md and re-run")
+    elif result.ask and result.ask.questions:
+        _row("ASK",        True,
+             f"{len(result.ask.responses)} response(s) received")
     _row("FIX",            result.fix_loop is not None and result.fix_loop.converged,
          f"{len(result.fix_loop.fixes_applied)} fix(es)" if result.fix_loop else "skipped")
+    if result.llm_fix_loop is not None:
+        _row("LLM-FIX",    result.llm_fix_loop.converged,
+             f"{len(result.llm_fix_loop.fixes_applied)} fix(es), "
+             f"{result.llm_fix_loop.iterations} iter(s)")
     _row("RUN (native)",   result.native_run.success if result.native_run else None,
          f"rc={result.native_run.returncode}" if result.native_run else "skipped")
     _row("VALIDATE (native)", result.native_validation is not None and result.native_validation.success
@@ -235,12 +247,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _row("VALIDATE (docker)", result.container_ok if result.container_validation else None)
 
     print()
-    if result.error:
+    if result.needs_author_input:
+        print(f"  {_WARN} {_bold('WAITING')}: author input required")
+        print(f"  {_dim('Edit QUESTIONS.md in the working copy and re-run.')}")
+    elif result.error:
         print(f"  {_FAIL} {_bold('FAILED')}: {result.error}")
     else:
         print(f"  {_OK} {_bold('PASSED')}")
     print()
 
+    if result.needs_author_input:
+        return 2
     ok = not result.error and result.native_ok
     return 0 if ok else 1
 

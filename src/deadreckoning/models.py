@@ -154,6 +154,24 @@ class ExpectedVersionPin(BaseModel):
     snapshot_date: Optional[str] = None
 
 
+class AuthorQuestion(BaseModel):
+    gap_kind: str
+    exhibit: Optional[str] = None
+    question: str
+    context: Optional[str] = None
+
+
+class AuthorResponse(BaseModel):
+    exhibit: Optional[str] = None
+    answer: str
+    data_path: Optional[str] = None
+
+
+class AuthorQA(BaseModel):
+    questions: list[AuthorQuestion] = Field(default_factory=list)
+    responses: list[AuthorResponse] = Field(default_factory=list)
+
+
 class Manifest(BaseModel):
     """Ground-truth description of what a fixture contains and what the agent must do."""
     fixture_name: str

@@ -29,6 +29,7 @@ class FixAction(BaseModel):
     old_path: Optional[str] = None
     new_path: Optional[str] = None
     exhibit_path: Optional[str] = None
+    write_call: Optional[str] = None  # LLM-generated code snippet for add_missing_script_output
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ class FixContext(BaseModel):
     env_spec: Optional[EnvSpec] = None
     iteration: int = 0
     applied_fixes: list[FixAction] = Field(default_factory=list)
+    last_stderr: Optional[str] = None  # stderr from most recent script execution
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -121,8 +123,18 @@ def rewrite_path(working_copy: Path, action: FixAction) -> bool:
 
 
 def add_missing_script_output(working_copy: Path, action: FixAction) -> bool:
-    """Stub — LLM dispatcher territory. Returns False so loop skips."""
-    return False
+    """Append LLM-generated write call to end of script file."""
+    if not action.script or not action.write_call:
+        return False
+    path = _script_abs(working_copy, action.script)
+    if not path.exists():
+        return False
+    existing = path.read_text(errors="replace")
+    if action.write_call.strip() in existing:
+        return False  # already present
+    with path.open("a") as f:
+        f.write("\n" + action.write_call.rstrip() + "\n")
+    return True
 
 
 def apply_fix(
@@ -200,6 +212,7 @@ class FixLoopResult(BaseModel):
     converged: bool = False
     final_gaps: list[Gap] = Field(default_factory=list)
     error: Optional[str] = None
+    llm_reasoning: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +260,76 @@ def run_fix_loop(
             current_graph = build_graph(working_copy)
         else:
             # Can't apply — don't loop forever
+            result.converged = True
+            break
+    else:
+        result.error = f"Did not converge after {max_iterations} iterations"
+
+    result.final_gaps = list(current_graph.gaps)
+    return result, current_graph
+
+
+# ---------------------------------------------------------------------------
+# LLM fix loop — re-runs scripts to capture stderr for the dispatcher
+# ---------------------------------------------------------------------------
+
+
+def run_llm_fix_loop(
+    working_copy: Path,
+    graph: DependencyGraph,
+    env_spec: Optional[EnvSpec] = None,
+    dispatcher: Optional[Dispatcher] = None,
+    master_script: str = "code/run.R",
+    max_iterations: int = 5,
+) -> tuple[FixLoopResult, DependencyGraph]:
+    """
+    Run FIX loop with actual script re-execution after each fix.
+    Uses LLMDispatcher by default; falls back gracefully if no API key.
+    Returns (result, updated_graph).
+    """
+    from .graph import build_graph
+    from .runner import run_natively
+
+    if dispatcher is None:
+        from .llm_dispatcher import LLMDispatcher
+        dispatcher = LLMDispatcher()
+
+    result = FixLoopResult()
+    current_graph = graph
+    last_stderr: Optional[str] = None
+
+    for iteration in range(max_iterations):
+        result.iterations = iteration + 1
+        context = FixContext(
+            working_copy=working_copy,
+            graph=current_graph,
+            env_spec=env_spec,
+            iteration=iteration,
+            applied_fixes=list(result.fixes_applied),
+            last_stderr=last_stderr,
+        )
+
+        action = dispatcher.next_fix(current_graph.gaps, context)
+        if action is None:
+            result.converged = True
+            break
+
+        applied = apply_fix(working_copy, action, env_spec)
+        if not applied:
+            result.converged = True
+            break
+
+        result.fixes_applied.append(action)
+        current_graph = build_graph(working_copy)
+
+        run = run_natively(working_copy, master_script=master_script)
+        last_stderr = run.stderr
+
+        if hasattr(dispatcher, "reasoning") and dispatcher.reasoning:
+            result.llm_reasoning.extend(dispatcher.reasoning)
+            dispatcher.reasoning.clear()
+
+        if run.success:
             result.converged = True
             break
     else:
