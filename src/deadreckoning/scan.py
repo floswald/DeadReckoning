@@ -309,6 +309,65 @@ def scan_python_scripts(project_root: Path) -> ScanResult:
 
 
 # ---------------------------------------------------------------------------
+# Julia patterns
+# ---------------------------------------------------------------------------
+
+_JL_USING_RE = re.compile(
+    r'^[ \t]*(?:using|import)\s+([^\n#]+)',
+    re.MULTILINE,
+)
+
+_JULIA_STDLIB = {
+    "Base", "Core", "Main", "LinearAlgebra", "Statistics", "Random", "Dates",
+    "Printf", "Logging", "Test", "Pkg", "REPL", "InteractiveUtils", "Distributed",
+    "SharedArrays", "SparseArrays", "DelimitedFiles", "Markdown", "Serialization",
+    "Sockets", "UUIDs", "SHA", "Mmap", "FileWatching", "LibGit2", "Downloads",
+    "TOML", "ArgTools", "Artifacts", "Profile", "SuiteSparse",
+}
+
+
+def _scan_julia_internals(
+    project_root: Path,
+) -> tuple[set[str], list[ExternalPath]]:
+    jl_files = list(project_root.rglob("*.jl"))
+    packages: set[str] = set()
+    external_paths: list[ExternalPath] = []
+
+    for script in sorted(jl_files):
+        try:
+            text = script.read_text(errors="replace")
+        except OSError:
+            continue
+        external_paths.extend(_extract_external_paths(text, script, project_root))
+
+        for m in _JL_USING_RE.finditer(text):
+            raw = m.group(1).strip()
+            # "Foo: bar, baz" → only Foo is the package; "Foo, Bar" → two packages
+            if ":" in raw:
+                module_part = raw.split(":")[0]
+                parts = [module_part]
+            else:
+                parts = raw.split(",")
+            for part in parts:
+                pkg = part.strip().split(".")[0].strip()
+                if pkg and pkg.isidentifier():
+                    packages.add(pkg)
+
+    packages -= _JULIA_STDLIB
+    return packages, external_paths
+
+
+def scan_julia_scripts(project_root: Path) -> ScanResult:
+    """Scan all Julia .jl scripts."""
+    pkgs, paths = _scan_julia_internals(project_root)
+    return ScanResult(
+        used_packages=sorted(pkgs),
+        external_paths=paths,
+        secret_files=_scan_secrets(project_root),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stata scanner
 # ---------------------------------------------------------------------------
 
@@ -355,15 +414,16 @@ def scan_stata_scripts(project_root: Path) -> ScanResult:
 
 def scan_scripts(project_root: Path) -> ScanResult:
     """
-    Scan all scripts across supported languages (R, Python, Stata).
+    Scan all scripts across supported languages (R, Python, Julia, Stata).
     Returns a single merged ScanResult. Secret scan runs once.
     """
     r_pkgs, r_paths, r_dl = _scan_r_internals(project_root)
     py_pkgs, py_paths, py_dl = _scan_python_internals(project_root)
+    jl_pkgs, jl_paths = _scan_julia_internals(project_root)
     stata_pkgs, stata_paths = _scan_stata_internals(project_root)
 
-    all_packages = sorted(r_pkgs | py_pkgs | stata_pkgs)
-    all_paths = r_paths + py_paths + stata_paths
+    all_packages = sorted(r_pkgs | py_pkgs | jl_pkgs | stata_pkgs)
+    all_paths = r_paths + py_paths + jl_paths + stata_paths
     all_downloads = r_dl + py_dl
 
     return ScanResult(

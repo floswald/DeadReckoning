@@ -288,7 +288,8 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'open\s*\(\s*["\']([^"\']+)["\'],\s*["\']w'),
     ],
     ".jl": [
-        re.compile(r'savefig\s*\(\s*["\']([^"\']+)["\']'),
+        # savefig("file.pdf") or savefig(plot_obj, "file.pdf")
+        re.compile(r'savefig\s*\(\s*(?:[^"\'()\s,]+\s*,\s*)?["\']([^"\']+)["\']'),
         re.compile(r'CSV\.write\s*\(\s*["\']([^"\']+)["\']'),
         re.compile(r'open\s*\(\s*["\']([^"\']+)["\'],\s*["\']w'),
     ],

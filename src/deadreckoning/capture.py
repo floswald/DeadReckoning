@@ -29,6 +29,14 @@ def capture_env(project_root: Path) -> EnvSpec:
     if renv_lock.exists():
         return _from_renv_lock(renv_lock)
 
+    manifest_toml = project_root / "Manifest.toml"
+    if manifest_toml.exists():
+        return _from_manifest_toml(manifest_toml)
+
+    project_toml = project_root / "Project.toml"
+    if project_toml.exists():
+        return _from_project_toml(project_toml)
+
     env_yml = project_root / "environment.yml"
     if env_yml.exists():
         return _from_environment_yml(env_yml)
@@ -50,6 +58,11 @@ def capture_env(project_root: Path) -> EnvSpec:
     r_files = list(project_root.rglob("*.R")) + list(project_root.rglob("*.r"))
     if r_files:
         return _r_inferred_from_date(project_root, r_files)
+
+    # Julia project without Manifest.toml
+    jl_files = list(project_root.rglob("*.jl"))
+    if jl_files:
+        return _julia_inferred_from_date(project_root, jl_files)
 
     # Python project without any env file
     py_files = list(project_root.rglob("*.py"))
@@ -264,6 +277,106 @@ def _nested_setkey(d: dict, table: list[str], key: str, val) -> None:
     for k in table:
         node = node.setdefault(k, {})
     node[key] = val
+
+
+def _from_manifest_toml(manifest: Path) -> EnvSpec:
+    """Parse Julia Manifest.toml (lockfile — high confidence)."""
+    text = manifest.read_text(errors="replace")
+    try:
+        import tomllib  # type: ignore[import]
+        data = tomllib.loads(text)
+    except ImportError:
+        data = _parse_toml_simple(text)
+
+    packages: list[PackageSpec] = []
+    # Julia 1.7+ format: [[deps.PackageName]] sections
+    # Simple approach: extract all package names from [[deps.X]] headers
+    # and version = "X.Y.Z" lines
+    seen: set[str] = set()
+
+    # Try structured parse first
+    deps = data.get("deps", {})
+    for name, entries in deps.items():
+        if name in seen:
+            continue
+        seen.add(name)
+        version = None
+        if isinstance(entries, list) and entries:
+            version = entries[0].get("version") if isinstance(entries[0], dict) else None
+        elif isinstance(entries, dict):
+            version = entries.get("version")
+        packages.append(PackageSpec(
+            name=name,
+            version=version,
+            pin_method=PinMethod.manifest_toml,
+        ))
+
+    # Fallback: regex parse for [[deps.X]] + version = "..."
+    if not packages:
+        current_pkg: str | None = None
+        for line in text.splitlines():
+            m = re.match(r'^\[\[deps\.([^\]]+)\]\]', line)
+            if m:
+                current_pkg = m.group(1)
+                if current_pkg not in seen:
+                    seen.add(current_pkg)
+                    packages.append(PackageSpec(
+                        name=current_pkg,
+                        pin_method=PinMethod.manifest_toml,
+                    ))
+            elif current_pkg:
+                vm = re.match(r'^version\s*=\s*"([^"]+)"', line)
+                if vm:
+                    for p in packages:
+                        if p.name == current_pkg and p.version is None:
+                            p.version = vm.group(1)
+
+    return EnvSpec(
+        language="Julia",
+        packages=packages,
+        pin_method=PinMethod.manifest_toml,
+        confidence=0.95,
+    )
+
+
+def _from_project_toml(project_toml: Path) -> EnvSpec:
+    """Parse Julia Project.toml (no exact versions, but lists direct deps)."""
+    text = project_toml.read_text(errors="replace")
+    try:
+        import tomllib  # type: ignore[import]
+        data = tomllib.loads(text)
+    except ImportError:
+        data = _parse_toml_simple(text)
+
+    packages: list[PackageSpec] = []
+    deps = data.get("deps", {})
+    for name in deps:
+        packages.append(PackageSpec(
+            name=name,
+            version=None,
+            pin_method=PinMethod.manifest_toml,
+        ))
+
+    return EnvSpec(
+        language="Julia",
+        packages=packages,
+        pin_method=PinMethod.manifest_toml,
+        confidence=0.7,  # Project.toml has deps but no exact versions
+    )
+
+
+def _julia_inferred_from_date(project_root: Path, jl_files: list[Path]) -> EnvSpec:
+    """EnvSpec for Julia project with no Manifest.toml."""
+    snapshot_date = (
+        _infer_date_from_git_log(project_root)
+        or _infer_date_from_file_mtimes(jl_files)
+    )
+    return EnvSpec(
+        language="Julia",
+        pin_method=PinMethod.inferred_from_date,
+        snapshot_date=snapshot_date,
+        confidence=0.3,
+    )
 
 
 def _python_inferred_from_date(project_root: Path, py_files: list[Path]) -> EnvSpec:
