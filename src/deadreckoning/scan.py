@@ -368,6 +368,91 @@ def scan_julia_scripts(project_root: Path) -> ScanResult:
 
 
 # ---------------------------------------------------------------------------
+# MATLAB patterns
+# ---------------------------------------------------------------------------
+
+# Map function name → toolbox name (economics-relevant subset)
+_MATLAB_TOOLBOX_FUNCTIONS: dict[str, str] = {
+    # Statistics and Machine Learning Toolbox
+    "fitlm":         "Statistics and Machine Learning Toolbox",
+    "fitglm":        "Statistics and Machine Learning Toolbox",
+    "fitcnb":        "Statistics and Machine Learning Toolbox",
+    "regress":       "Statistics and Machine Learning Toolbox",
+    "ksdensity":     "Statistics and Machine Learning Toolbox",
+    "anova1":        "Statistics and Machine Learning Toolbox",
+    "ranksum":       "Statistics and Machine Learning Toolbox",
+    # Optimization Toolbox
+    "fmincon":       "Optimization Toolbox",
+    "fminunc":       "Optimization Toolbox",
+    "linprog":       "Optimization Toolbox",
+    "quadprog":      "Optimization Toolbox",
+    "lsqnonlin":     "Optimization Toolbox",
+    "lsqcurvefit":   "Optimization Toolbox",
+    # Econometrics Toolbox
+    "arima":         "Econometrics Toolbox",
+    "garch":         "Econometrics Toolbox",
+    # Signal Processing Toolbox
+    "butter":        "Signal Processing Toolbox",
+    "fir1":          "Signal Processing Toolbox",
+    "spectrogram":   "Signal Processing Toolbox",
+    # Image Processing Toolbox
+    "imshow":        "Image Processing Toolbox",
+    "imresize":      "Image Processing Toolbox",
+    "rgb2gray":      "Image Processing Toolbox",
+}
+
+# addpath('...') — detect external code dependencies
+_MATLAB_ADDPATH_RE = re.compile(
+    r'\baddpath\s*\(\s*["\']([^"\']+)["\']',
+)
+
+# function calls that indicate toolbox usage
+_MATLAB_TOOLBOX_RE = re.compile(
+    r'\b(' + '|'.join(re.escape(fn) for fn in _MATLAB_TOOLBOX_FUNCTIONS) + r')\s*\(',
+)
+
+
+def _scan_matlab_internals(
+    project_root: Path,
+) -> tuple[set[str], list[ExternalPath]]:
+    """Extract toolbox names and external paths from .m files."""
+    m_files = list(project_root.rglob("*.m"))
+    toolboxes: set[str] = set()
+    external_paths: list[ExternalPath] = []
+
+    for script in sorted(m_files):
+        try:
+            text = script.read_text(errors="replace")
+        except OSError:
+            continue
+        external_paths.extend(_extract_external_paths(text, script, project_root))
+
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            # MATLAB comment: % ...
+            if stripped.startswith("%"):
+                continue
+            for m in _MATLAB_TOOLBOX_RE.finditer(line):
+                fn = m.group(1)
+                toolboxes.add(_MATLAB_TOOLBOX_FUNCTIONS[fn])
+            # addpath entries as informal "packages"
+            for m in _MATLAB_ADDPATH_RE.finditer(line):
+                toolboxes.add(f"addpath:{m.group(1)}")
+
+    return toolboxes, external_paths
+
+
+def scan_matlab_scripts(project_root: Path) -> ScanResult:
+    """Scan all MATLAB .m scripts."""
+    pkgs, paths = _scan_matlab_internals(project_root)
+    return ScanResult(
+        used_packages=sorted(pkgs),
+        external_paths=paths,
+        secret_files=_scan_secrets(project_root),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stata scanner
 # ---------------------------------------------------------------------------
 
@@ -421,9 +506,10 @@ def scan_scripts(project_root: Path) -> ScanResult:
     py_pkgs, py_paths, py_dl = _scan_python_internals(project_root)
     jl_pkgs, jl_paths = _scan_julia_internals(project_root)
     stata_pkgs, stata_paths = _scan_stata_internals(project_root)
+    matlab_pkgs, matlab_paths = _scan_matlab_internals(project_root)
 
-    all_packages = sorted(r_pkgs | py_pkgs | jl_pkgs | stata_pkgs)
-    all_paths = r_paths + py_paths + jl_paths + stata_paths
+    all_packages = sorted(r_pkgs | py_pkgs | jl_pkgs | stata_pkgs | matlab_pkgs)
+    all_paths = r_paths + py_paths + jl_paths + stata_paths + matlab_paths
     all_downloads = r_dl + py_dl
 
     return ScanResult(

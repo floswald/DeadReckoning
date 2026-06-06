@@ -127,6 +127,7 @@ class EnvSpec(BaseModel):
     snapshot_date: Optional[str] = None    # ISO date used for PPM/conda channel
     snapshot_url: Optional[str] = None     # resolved PPM URL
     confidence: float = 0.0               # 0.0–1.0
+    note: Optional[str] = None            # human-readable advice (e.g. MATLAB login)
 
 
 # ---------------------------------------------------------------------------

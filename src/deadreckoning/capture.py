@@ -69,6 +69,11 @@ def capture_env(project_root: Path) -> EnvSpec:
     if py_files:
         return _python_inferred_from_date(project_root, py_files)
 
+    # MATLAB project — no lockfile standard; infer from mtime/git
+    m_files = list(project_root.rglob("*.m"))
+    if m_files:
+        return _matlab_inferred_from_date(project_root, m_files)
+
     return EnvSpec(language="unknown", confidence=0.0)
 
 
@@ -376,6 +381,32 @@ def _julia_inferred_from_date(project_root: Path, jl_files: list[Path]) -> EnvSp
         pin_method=PinMethod.inferred_from_date,
         snapshot_date=snapshot_date,
         confidence=0.3,
+    )
+
+
+_MATLAB_DOCKER_ADVICE = (
+    "MATLAB requires a MathWorks account and interactive login on first container run. "
+    "Use the mathworks/matlab Docker image with the -browser flag:\n"
+    "  docker run --rm -it -p 8888:8888 mathworks/matlab -browser\n"
+    "After first-run authentication the license is cached. "
+    "Subsequent non-interactive runs work with:\n"
+    "  docker run --rm mathworks/matlab -batch \"run('code/run.m')\"\n"
+    "Toolboxes must be licensed and declared in the project README."
+)
+
+
+def _matlab_inferred_from_date(project_root: Path, m_files: list[Path]) -> EnvSpec:
+    """EnvSpec for MATLAB project — no lockfile, infer date from git/mtime."""
+    snapshot_date = (
+        _infer_date_from_git_log(project_root)
+        or _infer_date_from_file_mtimes(m_files)
+    )
+    return EnvSpec(
+        language="MATLAB",
+        pin_method=PinMethod.inferred_from_date,
+        snapshot_date=snapshot_date,
+        confidence=0.25,  # lowest: no lockfile, no standard package manager
+        note=_MATLAB_DOCKER_ADVICE,
     )
 
 

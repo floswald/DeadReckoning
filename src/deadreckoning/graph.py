@@ -293,6 +293,18 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'CSV\.write\s*\(\s*["\']([^"\']+)["\']'),
         re.compile(r'open\s*\(\s*["\']([^"\']+)["\'],\s*["\']w'),
     ],
+    ".m": [
+        # saveas(fig, 'file.pdf') or saveas(fig, 'file.pdf', 'pdf')
+        re.compile(r'saveas\s*\(\s*[^,]+,\s*["\']([^"\']+)["\']'),
+        # exportgraphics(fig, 'file.pdf') — R2020a+
+        re.compile(r'exportgraphics\s*\(\s*[^,]+,\s*["\']([^"\']+)["\']'),
+        # print('-dpdf', 'file') or print(fig, '-dpdf', 'file')
+        re.compile(r'\bprint\s*\([^)]*["\']([^"\']+\.[a-z]{2,4})["\']'),
+        # writetable(T, 'file.csv'), writematrix(M, 'file.csv')
+        re.compile(r'write(?:table|matrix)\s*\([^,]+,\s*["\']([^"\']+)["\']'),
+        # save('file.mat', ...)
+        re.compile(r'\bsave\s*\(\s*["\']([^"\']+\.mat)["\']'),
+    ],
 }
 _WRITE_PATTERNS[".r"] = _WRITE_PATTERNS[".R"]
 
