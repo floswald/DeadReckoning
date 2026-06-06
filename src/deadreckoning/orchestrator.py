@@ -165,6 +165,18 @@ def run_pipeline(
     if master_script is None:
         master_script = _detect_master_script(project_root)
 
+    # Step 1: confidentiality gate — check BEFORE making working copy (spec §4.1)
+    # check_restricted reads filenames only, no file contents opened.
+    restricted = check_restricted(project_root)
+    if restricted.is_restricted:
+        # Return a minimal result with no working copy created
+        return PipelineResult(
+            project_root=project_root,
+            working_copy=project_root,  # sentinel — no copy was made
+            restricted=restricted,
+            error=f"Restricted data detected: {restricted.reason}",
+        )
+
     # Always work on a copy — original is never touched
     tmpdir = Path(tempfile.mkdtemp(prefix="dr_"))
     working_copy = tmpdir / project_root.name
@@ -176,13 +188,8 @@ def run_pipeline(
     result = PipelineResult(
         project_root=project_root,
         working_copy=working_copy,
-        restricted=check_restricted(working_copy),
+        restricted=restricted,
     )
-
-    # Step 1: confidentiality gate
-    if result.restricted.is_restricted:
-        result.error = f"Restricted data detected: {result.restricted.reason}"
-        return result
 
     # Step 2: graph
     result.graph = build_graph(working_copy)
