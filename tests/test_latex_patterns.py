@@ -18,7 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_def_macro_collected():
-    """\def\figs{figures} must be collected as a path macro."""
+    r"""\def\figs{figures} must be collected as a path macro."""
     tex_files = sorted((FIXTURES / "latex_def_macro").rglob("*.tex"))
     macros = _collect_tex_macros(tex_files)
     assert "figs" in macros, f"\\def\\figs not collected. Got: {macros}"
@@ -53,7 +53,7 @@ def test_def_macro_fig1_sourced():
 
 
 def test_graphicspath_collected():
-    """\graphicspath entries must be collected."""
+    r"""\graphicspath entries must be collected."""
     tex_files = sorted((FIXTURES / "latex_graphicspath").rglob("*.tex"))
     gp = _collect_graphicspath(tex_files)
     entries = [entry for _, entry in gp]
@@ -118,3 +118,100 @@ def test_no_extension_sourced():
         assert exhibit.source is not None, (
             f"{exhibit.tex_path.name} not traced to a script"
         )
+
+
+# ---------------------------------------------------------------------------
+# Macros in .sty preamble file  (latex_preamble_macros fixture)
+# ---------------------------------------------------------------------------
+
+
+def test_preamble_macros_collected():
+    """Macros defined in mymacros.sty must be collected."""
+    macros = _collect_tex_macros(sorted((FIXTURES / "latex_preamble_macros").rglob("*.tex")))
+    assert "figdir" in macros
+    assert "tabdir" in macros
+
+
+def test_preamble_macros_figure_resolved():
+    graph = build_graph(FIXTURES / "latex_preamble_macros")
+    pdfs = [e for e in graph.exhibits if str(e.tex_path).endswith(".pdf")]
+    assert len(pdfs) == 1
+    assert pdfs[0].exists_on_disk
+
+
+def test_preamble_macros_table_resolved():
+    graph = build_graph(FIXTURES / "latex_preamble_macros")
+    tex_inputs = [e for e in graph.exhibits if str(e.tex_path).endswith(".tex")]
+    assert len(tex_inputs) == 1
+    assert tex_inputs[0].exists_on_disk
+
+
+def test_preamble_macros_no_unexpanded_in_paths():
+    graph = build_graph(FIXTURES / "latex_preamble_macros")
+    for e in graph.exhibits:
+        assert "\\figdir" not in str(e.tex_path)
+        assert "\\tabdir" not in str(e.tex_path)
+
+
+# ---------------------------------------------------------------------------
+# \subfile{}  (latex_subfile fixture)
+# ---------------------------------------------------------------------------
+
+
+def test_subfile_figures_detected():
+    """Figures referenced inside \\subfile'd sections must be found."""
+    graph = build_graph(FIXTURES / "latex_subfile")
+    pdfs = [e for e in graph.exhibits if str(e.tex_path).endswith(".pdf")]
+    assert len(pdfs) == 2
+
+
+def test_subfile_table_detected():
+    graph = build_graph(FIXTURES / "latex_subfile")
+    tex_inputs = [e for e in graph.exhibits if str(e.tex_path).endswith(".tex")]
+    assert len(tex_inputs) == 1
+
+
+def test_subfile_exhibits_exist_on_disk():
+    graph = build_graph(FIXTURES / "latex_subfile")
+    for e in graph.exhibits:
+        assert e.exists_on_disk, f"{e.tex_path.name} not found on disk"
+
+
+def test_subfile_prose_not_in_exhibits():
+    """\\subfile{sections/results} itself must NOT appear as an exhibit."""
+    graph = build_graph(FIXTURES / "latex_subfile")
+    names = [e.tex_path.name for e in graph.exhibits]
+    assert "results" not in names
+    assert "appendix" not in names
+
+
+# ---------------------------------------------------------------------------
+# \import{dir}{file}  (latex_import fixture)
+# ---------------------------------------------------------------------------
+
+
+def test_import_figures_detected():
+    """Figures inside \\import'd sections must be detected."""
+    graph = build_graph(FIXTURES / "latex_import")
+    pdfs = [e for e in graph.exhibits if str(e.tex_path).endswith(".pdf")]
+    assert len(pdfs) == 2
+
+
+def test_import_table_detected():
+    graph = build_graph(FIXTURES / "latex_import")
+    tex_inputs = [e for e in graph.exhibits if str(e.tex_path).endswith(".tex")]
+    assert len(tex_inputs) == 1
+
+
+def test_import_exhibits_exist_on_disk():
+    graph = build_graph(FIXTURES / "latex_import")
+    for e in graph.exhibits:
+        assert e.exists_on_disk, f"{e.tex_path.name} not found on disk"
+
+
+def test_import_prose_not_in_exhibits():
+    """\\import{sections/}{results.tex} must NOT appear as an exhibit."""
+    graph = build_graph(FIXTURES / "latex_import")
+    names = [e.tex_path.name for e in graph.exhibits]
+    assert "results.tex" not in names
+    assert "appendix.tex" not in names

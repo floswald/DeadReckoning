@@ -26,6 +26,23 @@ _TEX_INCLUDE_RE = re.compile(
     re.MULTILINE,
 )
 
+# \subfile{} — structural include; target is a LaTeX prose file, not an exhibit.
+# Detected here so we can skip it as an exhibit; its contents are scanned via rglob.
+_TEX_SUBFILE_RE = re.compile(
+    r"\\subfile\s*\{([^}]+)\}",
+    re.MULTILINE,
+)
+
+# \import{directory}{file} from the import package — two separate brace groups.
+# Only treated as exhibits when target is NOT a .tex prose file.
+_TEX_IMPORT_RE = re.compile(
+    r"\\(?:import|subimport)\s*\{([^}]*)\}\s*\{([^}]+)\}",
+    re.MULTILINE,
+)
+
+# Extensions that identify structural prose files (not generated output exhibits)
+_PROSE_EXTENSIONS = frozenset({".tex", ".ltx", ""})
+
 # Inline table: \begin{tabular} appearing outside any \input{} — look for
 # tabular environments that contain numbers and are not inside an \input call.
 _INLINE_TABULAR_RE = re.compile(
@@ -92,12 +109,17 @@ def _looks_like_path(value: str) -> bool:
 
 def _collect_tex_macros(tex_files: list[Path]) -> dict[str, str]:
     """
-    Scan all tex files for path-macro definitions (\\newcommand, \\def, etc.)
+    Scan all tex/.sty files for path-macro definitions (\\newcommand, \\def, etc.)
     where the value looks like a path fragment. Returns {name: value}.
     Later definitions override earlier ones (last-wins, matching TeX semantics).
+    Accepts both .tex and .sty files so custom preamble packages are included.
     """
     macros: dict[str, str] = {}
-    for tex in tex_files:
+    # Also scan .sty files in the same directories as the tex files
+    sty_dirs = {f.parent for f in tex_files}
+    sty_files = [s for d in sty_dirs for s in d.glob("*.sty")]
+    all_files = list(tex_files) + sty_files
+    for tex in all_files:
         try:
             text = _INLINE_COMMENT_RE.sub("", tex.read_text(errors="replace"))
         except OSError:
@@ -187,18 +209,32 @@ def _resolve_exhibit_path(
     return (tex_dir / p).resolve()
 
 
+def _is_prose_tex(ref: str) -> bool:
+    """True if ref points to a LaTeX prose/structural file (not a generated exhibit)."""
+    suffix = Path(ref).suffix.lower()
+    return suffix in _PROSE_EXTENSIONS
+
+
 def _extract_exhibits_from_tex(
     tex_path: Path,
     macros: dict[str, str] | None = None,
     graphicspaths: list[tuple[Path, str]] | None = None,
 ) -> list[Path]:
-    """Return all external file paths referenced via include/input/includegraphics."""
+    """Return exhibit paths referenced via includegraphics/input/import.
+
+    \\subfile{} targets are structural prose files — skipped as exhibits since
+    their contents are already scanned via rglob("*.tex").
+    \\import{dir}{file} targets are skipped when they are .tex prose files;
+    kept when they are figure/table output files.
+    """
     text = tex_path.read_text(errors="replace")
     text = _INLINE_COMMENT_RE.sub("", text)
-    raw = _TEX_INCLUDE_RE.findall(text)
-    exhibits: list[Path] = []
     tex_dir = tex_path.parent
-    for ref in raw:
+    exhibits: list[Path] = []
+
+    # Single-arg commands: \includegraphics, \input, \include, etc.
+    # (NOT \subfile — structural, already scanned via rglob)
+    for ref in _TEX_INCLUDE_RE.findall(text):
         ref = ref.strip()
         if macros:
             ref = _expand_macros(ref, macros)
@@ -206,6 +242,22 @@ def _extract_exhibits_from_tex(
             continue
         resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
         exhibits.append(resolved)
+
+    # Two-arg \import{dir}{file} — only non-prose targets (figures, tables output files)
+    for dir_arg, file_arg in _TEX_IMPORT_RE.findall(text):
+        dir_arg = dir_arg.strip()
+        file_arg = file_arg.strip()
+        if macros:
+            dir_arg = _expand_macros(dir_arg, macros)
+            file_arg = _expand_macros(file_arg, macros)
+        if dir_arg.startswith("\\") or file_arg.startswith("\\"):
+            continue
+        ref = (dir_arg.rstrip("/") + "/" + file_arg) if dir_arg else file_arg
+        if _is_prose_tex(ref):
+            continue  # structural include — contents scanned via rglob
+        resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
+        exhibits.append(resolved)
+
     return exhibits
 
 
