@@ -12,7 +12,7 @@
 
 ## 1. Problem statement
 
-### The real problem: most authors cannot reproduce their own work
+### Creating working replication packages is challenging
 
 Most economics papers take years to write. Code accumulates across multiple machines, collaborators, and software updates. Data lives in Dropbox, on a university server, or on a co-author's laptop. Figures get dragged into submission folders by hand. Numbers get typed into the paper directly. Nobody runs everything from scratch on a regular basis, because there is always a more pressing deadline.
 
