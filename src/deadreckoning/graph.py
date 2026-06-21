@@ -341,6 +341,7 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'esttab\s+.*?using\s+["\']?([^\s,"\']+)', re.IGNORECASE),
         re.compile(r'outreg2\s+.*?using\s+["\']?([^\s,"\']+)', re.IGNORECASE),
         re.compile(r'texsave\s+.*?using\s+["\']?([^\s,"\']+)', re.IGNORECASE),
+        re.compile(r'file\s+open\s+\w+\s+using\s+["\']([^"\']+)["\'].*write', re.IGNORECASE),
     ],
     ".py": [
         re.compile(r'savefig\s*\(\s*["\']([^"\']+)["\']'),
