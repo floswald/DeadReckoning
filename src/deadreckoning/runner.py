@@ -48,6 +48,8 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
         return _run_julia(project_root, master_script)
     if ext == ".py":
         return _run_python(project_root, master_script)
+    if ext == ".m":
+        return _run_matlab(project_root, master_script)
     return RunResult(
         returncode=1,
         stdout="",
@@ -95,6 +97,30 @@ def _run_python(project_root: Path, master_script: str) -> RunResult:
         returncode=result.returncode,
         stdout=result.stdout,
         stderr=result.stderr,
+    )
+
+
+def _run_matlab(project_root: Path, master_script: str) -> RunResult:
+    from .matlab import detect_matlab, run_matlab
+    install = detect_matlab()
+    if not install.found:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=f"MATLAB not found.\n{install.advice or ''}",
+        )
+    matlab_result = run_matlab(
+        project_root, master_script,
+        binary=install.binary,
+        supports_batch=install.supports_batch,
+    )
+    stderr = matlab_result.stderr
+    if matlab_result.log_has_error and matlab_result.error_snippet:
+        stderr += f"\nMATLAB error detected: {matlab_result.error_snippet}"
+    return RunResult(
+        returncode=0 if matlab_result.success else 1,
+        stdout=matlab_result.stdout,
+        stderr=stderr,
     )
 
 

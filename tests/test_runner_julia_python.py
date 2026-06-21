@@ -25,7 +25,7 @@ PYTHON_FIXTURE = Path(__file__).parent / "fixtures" / "runnable_python_minimal"
 
 
 def test_unsupported_extension_returns_error(tmp_path):
-    result = run_natively(tmp_path, master_script="code/run.m")
+    result = run_natively(tmp_path, master_script="code/run.nb")
     assert result.returncode == 1
     assert "Unsupported" in result.stderr
 
