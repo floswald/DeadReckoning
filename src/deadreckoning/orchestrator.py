@@ -20,7 +20,7 @@ from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
+from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -35,6 +35,7 @@ class PipelineResult:
     env_spec: EnvSpec | None = None
     scan: ScanResult | None = None
     resolve: ResolveResult | None = None
+    intake: IntakeResult | None = None
     ask: AuthorQA | None = None
     needs_author_input: bool = False
     clean: CleanResult | None = None
@@ -81,6 +82,7 @@ def run_pipeline(
     docker_tag: str | None = None,
     skip_docker: bool = False,
     skip_run: bool = False,
+    intake: IntakeResult | None = None,
 ) -> PipelineResult:
     """
     Run the full DeadReckoning pipeline on a copy of project_root.
@@ -124,6 +126,7 @@ def run_pipeline(
         project_root=project_root,
         working_copy=working_copy,
         restricted=restricted,
+        intake=intake,
     )
 
     # Step 2: graph
@@ -140,7 +143,7 @@ def run_pipeline(
 
     # Step 5b: ASK — surface gaps that require author input
     result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
-        working_copy, result.graph, result.env_spec, result.scan
+        working_copy, result.graph, result.env_spec, result.scan, intake=intake
     )
     if result.needs_author_input:
         result.error = "Author input required: see QUESTIONS.md in working copy"

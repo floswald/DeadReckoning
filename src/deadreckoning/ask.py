@@ -14,7 +14,9 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from .models import AuthorQA, AuthorQuestion, AuthorResponse, DependencyGraph, EnvSpec, GapKind
+
+
+from .models import AuthorQA, AuthorQuestion, AuthorResponse, DependencyGraph, EnvSpec, GapKind, IntakeResult
 
 # ---------------------------------------------------------------------------
 # Question categories
@@ -41,18 +43,24 @@ def identify_questions(
     graph: DependencyGraph,
     env_spec: Optional[EnvSpec] = None,
     scan=None,  # ScanResult | None — checked for external data paths
+    intake: Optional[IntakeResult] = None,
 ) -> list[AuthorQuestion]:
     """
     Build the list of questions for the author.
 
     Order:
+      0. Intake contradictions (intake claim vs. disk evidence)
       1. Blocking graph gaps (no source script, missing exhibit)
       2. External data locations not found on disk
-      3. License availability for proprietary software
-      4. Environment confidence (when was this last run?)
+      3. License availability for proprietary software (suppressed if intake answered)
+      4. Environment confidence / last-run date (suppressed if intake answered)
     """
     questions: list[AuthorQuestion] = []
     seen_exhibits: set[str] = set()
+
+    # 0. Intake contradictions — surface mismatches between what author claimed and disk shows
+    if intake is not None:
+        questions.extend(_contradiction_questions(intake, graph, env_spec, scan))
 
     # 1. Blocking graph gaps
     for gap in graph.gaps:
@@ -93,6 +101,9 @@ def identify_questions(
     if scan is not None and hasattr(scan, "external_paths"):
         for ep in scan.external_paths:
             if ep.kind in ("dropbox", "absolute", "network", "unc"):
+                # Suppress if intake already told us where data is and path matches
+                if intake is not None and intake.data_root and ep.raw.startswith(intake.data_root):
+                    continue
                 questions.append(AuthorQuestion(
                     gap_kind="external_data_missing",
                     exhibit=None,
@@ -106,10 +117,10 @@ def identify_questions(
                     context=f"Referenced in {ep.script} (line {ep.line})" if hasattr(ep, "line") else None,
                 ))
 
-    # 3. Proprietary software license
+    # 3. Proprietary software license — suppressed if intake already answered
     if env_spec is not None:
         lang = env_spec.language.upper()
-        if lang == "STATA":
+        if lang == "STATA" and (intake is None or intake.has_stata_license is None):
             questions.append(AuthorQuestion(
                 gap_kind="proprietary_license",
                 exhibit=None,
@@ -121,7 +132,7 @@ def identify_questions(
                 ),
                 context=None,
             ))
-        elif lang == "MATLAB":
+        elif lang == "MATLAB" and (intake is None or intake.has_matlab_license is None):
             questions.append(AuthorQuestion(
                 gap_kind="proprietary_license",
                 exhibit=None,
@@ -134,24 +145,114 @@ def identify_questions(
                 context=env_spec.note,
             ))
 
-    # 4. Low-confidence environment — ask when it last ran
+    # 4. Low-confidence environment — suppressed if intake supplied last_run_date
     if env_spec is not None and env_spec.confidence < _LOW_CONFIDENCE_THRESHOLD:
-        questions.append(AuthorQuestion(
-            gap_kind="env_last_run_date",
-            exhibit=None,
-            question=(
-                f"No lockfile was found for {env_spec.language}. "
-                "When did you last run this project successfully? "
-                "An approximate date (e.g. 'March 2023' or '2023-03') "
-                "helps reconstruct which package versions were installed."
-            ),
-            context=(
-                f"Current best guess: {env_spec.snapshot_date or 'unknown'}. "
-                f"Confidence: {env_spec.confidence:.0%}."
-            ),
-        ))
+        if intake is None or not intake.last_run_date:
+            questions.append(AuthorQuestion(
+                gap_kind="env_last_run_date",
+                exhibit=None,
+                question=(
+                    f"No lockfile was found for {env_spec.language}. "
+                    "When did you last run this project successfully? "
+                    "An approximate date (e.g. 'March 2023' or '2023-03') "
+                    "helps reconstruct which package versions were installed."
+                ),
+                context=(
+                    f"Current best guess: {env_spec.snapshot_date or 'unknown'}. "
+                    f"Confidence: {env_spec.confidence:.0%}."
+                ),
+            ))
 
     return questions
+
+
+# ---------------------------------------------------------------------------
+# Intake contradiction detection
+# ---------------------------------------------------------------------------
+
+
+def _contradiction_questions(
+    intake: IntakeResult,
+    graph: DependencyGraph,
+    env_spec: Optional[EnvSpec],
+    scan,
+) -> list[AuthorQuestion]:
+    """
+    Compare intake claims against disk evidence. Return contradiction questions.
+    These are informational (gap_kind='intake_contradiction') — not blocking.
+    """
+    contradictions: list[AuthorQuestion] = []
+
+    # Language claimed ≠ script extensions found
+    if intake.languages_claimed:
+        claimed_lower = {c.lower() for c in intake.languages_claimed}
+        claimed_stata = any("stata" in c for c in claimed_lower)
+        claimed_matlab = any("matlab" in c for c in claimed_lower)
+
+        if scan is not None and hasattr(scan, "scripts"):
+            extensions = {Path(s).suffix.lower() for s in (scan.scripts or [])}
+            if not claimed_stata and ".do" in extensions:
+                contradictions.append(AuthorQuestion(
+                    gap_kind="intake_contradiction",
+                    question=(
+                        "You said this project does not use Stata, "
+                        "but I found `.do` files on disk. "
+                        "Is Stata required to reproduce any of the paper's outputs?"
+                    ),
+                    context=f"Claimed languages: {', '.join(intake.languages_claimed)}",
+                ))
+            if not claimed_matlab and ".m" in extensions:
+                contradictions.append(AuthorQuestion(
+                    gap_kind="intake_contradiction",
+                    question=(
+                        "You said this project does not use MATLAB, "
+                        "but I found `.m` files on disk. "
+                        "Is MATLAB required to reproduce any of the paper's outputs?"
+                    ),
+                    context=f"Claimed languages: {', '.join(intake.languages_claimed)}",
+                ))
+
+    # last_run_date vs env_spec.snapshot_date — flag if they differ by > 1 year
+    if intake.last_run_date and env_spec is not None and env_spec.snapshot_date:
+        intake_year = _extract_year(intake.last_run_date)
+        snap_year = _extract_year(env_spec.snapshot_date)
+        if intake_year and snap_year and abs(intake_year - snap_year) > 1:
+            contradictions.append(AuthorQuestion(
+                gap_kind="intake_contradiction",
+                question=(
+                    f"You said this was last run around {intake.last_run_date}, "
+                    f"but the lockfile or environment suggests {env_spec.snapshot_date}. "
+                    "Which date should be used to reconstruct package versions?"
+                ),
+                context=(
+                    f"Intake date: {intake.last_run_date}  |  "
+                    f"Disk date: {env_spec.snapshot_date}"
+                ),
+            ))
+
+    # data_root given but path doesn't exist on disk
+    if intake.data_root:
+        data_path = Path(intake.data_root)
+        if not data_path.is_absolute():
+            data_path = graph.project_root / intake.data_root
+        if not data_path.exists():
+            contradictions.append(AuthorQuestion(
+                gap_kind="intake_contradiction",
+                question=(
+                    f"You said data is at `{intake.data_root}`, "
+                    "but that path does not exist on this machine. "
+                    "Has the data been moved, or is it on a different drive or machine?"
+                ),
+                context=f"Checked: {data_path}",
+            ))
+
+    return contradictions
+
+
+def _extract_year(date_str: str) -> Optional[int]:
+    """Pull a 4-digit year from a date string."""
+    m = re.search(r"\b(20\d{2})\b", date_str)
+    return int(m.group(1)) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +455,7 @@ def run_ask_step(
     graph: DependencyGraph,
     env_spec: EnvSpec,
     scan=None,
+    intake: Optional[IntakeResult] = None,
 ) -> tuple[AuthorQA, bool, DependencyGraph, EnvSpec]:
     """
     Full ASK step.
@@ -362,7 +464,13 @@ def run_ask_step(
     needs_input=True  → pipeline should halt; author must answer QUESTIONS.md
     needs_input=False → all blocking questions answered (or none); proceed
     """
-    questions = identify_questions(graph, env_spec, scan)
+    # Apply intake-supplied last_run_date to env_spec before anything else
+    if intake is not None and intake.last_run_date and env_spec.snapshot_date is None:
+        date = _parse_date(intake.last_run_date)
+        if date:
+            env_spec = env_spec.model_copy(update={"snapshot_date": date})
+
+    questions = identify_questions(graph, env_spec, scan, intake=intake)
     questions_path = working_copy / _QUESTIONS_FILE
 
     if not questions:
