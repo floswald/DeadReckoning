@@ -260,3 +260,101 @@ def test_graph_bus_locations_detects_table():
     g = build_graph(FIXTURE)
     paths = [str(e.tex_path) for e in g.exhibits]
     assert any("logit-results.tex" in p for p in paths)
+
+
+def test_graph_bus_locations_no_gaps():
+    """here()-wrapped ggsave/stargazer are now resolved — no exhibit should be a gap."""
+    g = build_graph(FIXTURE)
+    assert g.gaps == []
+
+
+def test_graph_bus_locations_both_exhibits_sourced():
+    """Both outputs must be linked to analysis.R via here() resolution."""
+    g = build_graph(FIXTURE)
+    assert len(g.sourced_exhibits) == 2
+
+
+def test_graph_bus_locations_figure_sourced_from_analysis():
+    g = build_graph(FIXTURE)
+    fig = next(e for e in g.exhibits if "garage-map.pdf" in str(e.tex_path))
+    assert fig.source is not None
+    assert "analysis.R" in str(fig.source.script)
+
+
+def test_graph_bus_locations_table_sourced_from_analysis():
+    g = build_graph(FIXTURE)
+    tbl = next(e for e in g.exhibits if "logit-results.tex" in str(e.tex_path))
+    assert tbl.source is not None
+    assert "analysis.R" in str(tbl.source.script)
+
+
+def test_graph_bus_locations_figure_write_call_is_ggsave():
+    g = build_graph(FIXTURE)
+    fig = next(e for e in g.exhibits if "garage-map.pdf" in str(e.tex_path))
+    assert "ggsave" in fig.source.write_call.lower()
+
+
+def test_graph_bus_locations_table_write_call_is_stargazer():
+    g = build_graph(FIXTURE)
+    tbl = next(e for e in g.exhibits if "logit-results.tex" in str(e.tex_path))
+    assert "stargazer" in tbl.source.write_call.lower()
+
+
+# ---------------------------------------------------------------------------
+# Scan — bus_locations fixture (here() paths, package detection)
+# ---------------------------------------------------------------------------
+
+
+def test_scan_bus_locations_finds_r_packages():
+    from deadreckoning.scan import scan_scripts
+    scan = scan_scripts(FIXTURE)
+    pkg_names = set(scan.used_packages)
+    assert "sf" in pkg_names
+    assert "ggplot2" in pkg_names
+    assert "mlogit" in pkg_names
+
+
+def test_scan_bus_locations_no_dangerous_secrets():
+    from deadreckoning.scan import scan_scripts
+    scan = scan_scripts(FIXTURE)
+    assert not scan.has_secrets
+
+
+# ---------------------------------------------------------------------------
+# _resolve_path_calls unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_here_single_arg():
+    from deadreckoning.graph import _resolve_path_calls
+    out = _resolve_path_calls('ggsave(here("figures/fig.pdf"))')
+    assert '"figures/fig.pdf"' in out
+
+
+def test_resolve_here_two_args():
+    from deadreckoning.graph import _resolve_path_calls
+    out = _resolve_path_calls('ggsave(here("figures", "fig.pdf"))')
+    assert '"figures/fig.pdf"' in out
+
+
+def test_resolve_here_three_args():
+    from deadreckoning.graph import _resolve_path_calls
+    out = _resolve_path_calls('here("output", "tables", "t1.tex")')
+    assert '"output/tables/t1.tex"' in out
+
+
+def test_resolve_file_path():
+    from deadreckoning.graph import _resolve_path_calls
+    out = _resolve_path_calls('pdf(file.path("figures", "fig.pdf"))')
+    assert '"figures/fig.pdf"' in out
+
+
+def test_resolve_leaves_plain_string_unchanged():
+    from deadreckoning.graph import _resolve_path_calls
+    text = 'ggsave("figures/fig.pdf")'
+    assert _resolve_path_calls(text) == text
+
+
+def test_resolve_no_crash_on_empty():
+    from deadreckoning.graph import _resolve_path_calls
+    assert _resolve_path_calls("") == ""
