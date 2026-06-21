@@ -23,6 +23,7 @@ DETECT → CAPTURE → GRAPH → SCAN → ASK → RESOLVE
 
 **Docker is the final step.** Native must pass first.
 **Stata + Docker: out of scope** — license-locked, no free base image.
+**MATLAB + Docker: guidance only** — use mathworks/matlab with browser login; no auto-build.
 
 ## Built so far
 
@@ -31,11 +32,17 @@ DETECT → CAPTURE → GRAPH → SCAN → ASK → RESOLVE
 | `models.py` | Pydantic schema for everything |
 | `confidentiality.py` | Filename-only scan — runs before any file read |
 | `graph.py` | `build_graph()` → LaTeX → exhibits → scripts → data |
-| `capture.py` | renv.lock / requirements.txt / .do → `EnvSpec` |
-| `runner.py` | Dispatch by extension: `.R` → Rscript, `.do` → Stata |
+| `capture.py` | renv.lock / requirements.txt / .do / Manifest.toml → `EnvSpec` — R, Python, Julia, Stata, MATLAB |
+| `scan.py` | Package + external path extraction — R, Python, Julia, Stata, MATLAB |
+| `runner.py` | Dispatch by extension: `.R` `.do` `.jl` `.py` `.m` |
 | `stata.py` | Three-state detection + advice, log scanning, ssc capture |
-| `docker.py` | Dockerfile template, build, container validation (R only) |
+| `matlab.py` | Three-state detection, -batch/-r dispatch, error scanning |
+| `resolve.py` | Absolute path rewrites (all languages) + relative path canonicalization (`here::here`, `pathlib`, `@__DIR__`, `fullfile`) |
+| `fix_loop.py` | Deterministic FIX loop (wrong-output-path) + LLM dispatcher hook |
+| `llm_dispatcher.py` | Claude tool-call FIX loop |
+| `docker.py` | Dockerfile generation (R/Python/Julia/unsupported), build, container validation |
 | `orchestrator.py` | Sequential pipeline, auto-detects master script |
+| `cli.py` | CLI entrypoint |
 
 ## Test strategy
 
@@ -52,18 +59,21 @@ See issue #10 for protocol on adding them.
 
 | # | Title | Status |
 |---|-------|--------|
-| 11 | CLI entrypoint | next |
-| 5 | Deepen R (RESOLVE, path rewrites) | next after CLI |
-| 6 | FIX loop — LLM orchestration | Phase 4 |
-| 8 | Multi-language (Python, Julia) | Stata done |
+| 6 | FIX loop — LLM orchestration (multi-language prompts) | Phase 4 |
+| — | ASK step — author Q&A flow (stub in orchestrator) | Phase 4 |
+| — | CLEAN step — dead-file detection + archive | not started |
+| — | DELIVER step — final package assembly | not started |
+| — | Docker FIX loop — Python/Julia package detection | after native proven |
 | 3 | Fixture generator | deferred |
-| 7 | Containerization depth | after native proven |
 | 9 | Real-world test cases | ongoing |
 
 ## Key gotchas
 
 - **Stata exits 0 on error** — must scan `.log` for `r(N);`
 - **Stata log location**: `<basename>.log` in CWD, not beside the script
+- **MATLAB exits 0 on error (pre-R2019b)** — scan stdout/stderr for `Error/Unrecognized/Undefined`
+- **MATLAB `run.m` naming conflict** — script named `run.m` shadows built-in `run()` in `-batch` mode; use `master.m` or any other name
+- **Julia `include` resolves relative to script dir** — use `joinpath(@__DIR__, ...)` not bare relative paths
 - **LaTeX macros**: `\def`, `\newcommand`, `\graphicspath` all need resolving
 - **Path resolution**: try script-relative AND project-root-relative
 - **Working copy safety**: `orchestrator.run_pipeline()` always copies first
