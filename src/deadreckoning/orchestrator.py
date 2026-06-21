@@ -17,7 +17,7 @@ from .capture import capture_env
 from .clean import run_clean_step
 from .confidentiality import check_restricted
 from .deliver import run_deliver_step
-from .docker import BuildResult, ContainerRunResult, build_image, generate_dockerfile, run_in_container
+from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
 from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
@@ -41,6 +41,7 @@ class PipelineResult:
     deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
+    docker_fix: DockerFixResult | None = None
     native_run: RunResult | None = None
     native_validation: ValidationResult | None = None
     dockerfile: str | None = None
@@ -180,15 +181,22 @@ def run_pipeline(
     if skip_docker:
         return result
 
-    # Step 6+7+8: Docker
-    result.dockerfile = generate_dockerfile(result.env_spec)
-    result.docker_build = build_image(working_copy, result.dockerfile, docker_tag)
-    if not result.docker_build.success:
-        result.error = "Docker build failed"
-        return result
-    result.container_validation = run_in_container(
-        working_copy, docker_tag, result.graph, master_script=master_script
+    # Step 6+7+8: Docker — build + run with auto-fix loop
+    result.docker_fix = run_docker_fix_loop(
+        working_copy,
+        result.graph,
+        result.env_spec,
+        image_tag=docker_tag,
+        master_script=master_script,
     )
+    if result.docker_fix.final_build is not None:
+        result.dockerfile = result.docker_fix.final_build.dockerfile_text
+        result.docker_build = result.docker_fix.final_build
+    if result.docker_fix.final_run is not None:
+        result.container_validation = result.docker_fix.final_run
+    if not result.docker_fix.converged:
+        result.error = result.docker_fix.error
+        return result
 
     # DELIVER: write README.md template + DELIVERY_REPORT.md
     result.deliver = run_deliver_step(

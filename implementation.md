@@ -62,17 +62,16 @@ See issue #10 for protocol on adding them.
 
 | # | Title | Status |
 |---|-------|--------|
-| 6 | FIX loop — LLM orchestration (multi-language prompts) | Phase 4 |
-| — | Docker FIX loop — Python/Julia package detection in container logs | after native proven |
 | 3 | Fixture generator | deferred |
 | 9 | Real-world test cases | ongoing |
 
 ## Test counts (as of last update)
 
-- **Total passing:** 585 (526 fast + 59 real-world in CI)
+- **Total passing:** 586 (fast CI; includes new Phase 4 tests)
 - **Pre-existing failures:** 3 (Stata license on dev machine, Docker not in CI)
 - Key test files: `test_ask.py` (44), `test_clean.py` (39), `test_deliver.py` (42),
   `test_resolve_multilang.py` (39), `test_matlab.py` (31), `test_runner_julia_python.py` (13),
+  `test_docker.py` (+12 new), `test_llm_dispatcher.py` (+3 multi-lang),
   `test_realworld_bus_locations.py` (48), `test_realworld_bus_location.py` (10)
 
 ## Key gotchas

@@ -474,6 +474,88 @@ def _add_r_package_to_dockerfile(dockerfile_text: str, package: str) -> str:
     return dockerfile_text[:m.start()] + m.group(1) + new_pkgs + ")" + dockerfile_text[m.end():]
 
 
+def _parse_missing_python_package(stderr: str) -> Optional[str]:
+    """Extract missing Python package name from pip/runtime stderr."""
+    m = re.search(r"No module named ['\"]([A-Za-z0-9_\-]+)['\"]", stderr)
+    if m:
+        return m.group(1)
+    m = re.search(r"No matching distribution found for ([A-Za-z0-9_\-]+)", stderr, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r"Could not find a version that satisfies the requirement ([A-Za-z0-9_\-]+)", stderr, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _add_python_package_to_dockerfile(dockerfile_text: str, package: str) -> str:
+    """Splice package into the pip install line in a Dockerfile."""
+    pattern = re.compile(r'(RUN pip install --no-cache-dir)(.*)', re.MULTILINE)
+    m = pattern.search(dockerfile_text)
+    if not m:
+        return dockerfile_text
+    existing = m.group(2)
+    quoted = f'"{package}"'
+    if quoted in existing or f'"{package}==' in existing:
+        return dockerfile_text
+    new_line = m.group(1) + existing.rstrip() + f" {quoted}"
+    return dockerfile_text[:m.start()] + new_line + dockerfile_text[m.end():]
+
+
+def _parse_missing_julia_package(stderr: str) -> Optional[str]:
+    """Extract missing Julia package name from Pkg/runtime stderr."""
+    m = re.search(r"Package ([A-Za-z0-9_\-]+) not found in current path", stderr)
+    if m:
+        return m.group(1)
+    m = re.search(r'ArgumentError: Package ([A-Za-z0-9_\-]+) not found', stderr)
+    if m:
+        return m.group(1)
+    m = re.search(r'ERROR: LoadError:.*?([A-Za-z0-9_]+) not installed', stderr, re.DOTALL)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _add_julia_package_to_dockerfile(dockerfile_text: str, package: str) -> str:
+    """Splice package into the Pkg.add([...]) call in a Dockerfile."""
+    pattern = re.compile(r'(RUN julia -e \'using Pkg; Pkg\.add\(\[")([^\']*?)("\]\)\')', re.DOTALL)
+    m = pattern.search(dockerfile_text)
+    if not m:
+        return dockerfile_text
+    existing = m.group(2)
+    if package in existing.split('", "'):
+        return dockerfile_text
+    if existing.strip():
+        new_pkgs = existing.rstrip() + f'", "{package}'
+    else:
+        new_pkgs = package
+    return dockerfile_text[:m.start()] + m.group(1) + new_pkgs + m.group(3) + dockerfile_text[m.end():]
+
+
+def _parse_missing_package(language: str, stderr: str) -> Optional[str]:
+    """Dispatch to language-appropriate package parser."""
+    lang = language.upper()
+    if lang == "R":
+        return _parse_missing_r_package(stderr)
+    if lang == "PYTHON":
+        return _parse_missing_python_package(stderr)
+    if lang == "JULIA":
+        return _parse_missing_julia_package(stderr)
+    return None
+
+
+def _add_package_to_dockerfile(language: str, dockerfile_text: str, package: str) -> str:
+    """Dispatch to language-appropriate Dockerfile patcher."""
+    lang = language.upper()
+    if lang == "R":
+        return _add_r_package_to_dockerfile(dockerfile_text, package)
+    if lang == "PYTHON":
+        return _add_python_package_to_dockerfile(dockerfile_text, package)
+    if lang == "JULIA":
+        return _add_julia_package_to_dockerfile(dockerfile_text, package)
+    return dockerfile_text
+
+
 def run_docker_fix_loop(
     project_root: Path,
     graph: DependencyGraph,
@@ -481,41 +563,47 @@ def run_docker_fix_loop(
     image_tag: str = "deadreckoning:latest",
     max_iterations: int = 5,
     platform: str = _DEFAULT_PLATFORM,
+    master_script: Optional[str] = None,
 ) -> DockerFixResult:
     """
     Build → run → check → fix → repeat.
-    Fixes applied: missing R packages detected from stderr.
-    Returns DockerFixResult with build/run history.
+
+    Build failures: missing packages detected deterministically (R/Python/Julia).
+    Run failures: LLM fix loop applied to working copy, then rebuild.
     """
     if env_spec is None:
         from .capture import capture_env
         env_spec = capture_env(project_root)
 
+    language = env_spec.language if env_spec else "R"
     dockerfile_text = generate_dockerfile(env_spec)
     dockerignore_text = generate_dockerignore()
     write_dockerignore(project_root, dockerignore_text)
 
     result = DockerFixResult()
 
-    for iteration in range(max_iterations):
+    for _iteration in range(max_iterations):
         build = build_image(project_root, dockerfile_text, image_tag, platform)
         result.build_attempts += 1
         result.final_build = build
 
         if not build.success:
-            pkg = _parse_missing_r_package(build.stderr)
+            pkg = _parse_missing_package(language, build.stderr)
             if pkg:
-                new_df = _add_r_package_to_dockerfile(dockerfile_text, pkg)
+                new_df = _add_package_to_dockerfile(language, dockerfile_text, pkg)
                 if new_df == dockerfile_text:
                     result.error = f"Cannot fix: package '{pkg}' already in Dockerfile"
                     break
-                result.dockerfile_fixes.append(f"add_r_package:{pkg}")
+                result.dockerfile_fixes.append(f"add_{language.lower()}_package:{pkg}")
                 dockerfile_text = new_df
                 continue
             result.error = f"Build failed (no auto-fix): {build.stderr[:400]}"
             break
 
-        run = run_in_container(project_root, image_tag, graph, env_spec=env_spec, platform=platform)
+        run = run_in_container(
+            project_root, image_tag, graph,
+            master_script=master_script, env_spec=env_spec, platform=platform,
+        )
         result.run_attempts += 1
         result.final_run = run
 
@@ -523,11 +611,25 @@ def run_docker_fix_loop(
             result.converged = True
             break
 
-        result.error = (
-            f"Outputs missing after run: {[str(p) for p in run.outputs.missing]}\n"
-            f"stderr: {run.run.stderr[:300]}"
+        # Run succeeded but outputs missing — try LLM fix on working copy then rebuild
+        from .fix_loop import run_llm_fix_loop
+        from .graph import build_graph
+        llm_result, graph = run_llm_fix_loop(
+            project_root, graph, env_spec,
+            master_script=master_script or _default_master_script(language.upper(), project_root),
         )
-        break  # run failures need native FIX loop first; don't loop here
+        result.dockerfile_fixes.extend(
+            f"llm:{f.kind}:{f.script or f.package_name or '—'}"
+            for f in llm_result.fixes_applied
+        )
+        if not llm_result.fixes_applied:
+            result.error = (
+                f"Outputs missing after run: {[str(p) for p in run.outputs.missing]}\n"
+                f"stderr: {run.run.stderr[:300]}"
+            )
+            break
+        # Rebuild with potentially updated scripts
+        dockerfile_text = generate_dockerfile(env_spec)
 
     else:
         if not result.converged:
