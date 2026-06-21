@@ -1,7 +1,8 @@
 """
-RESOLVE step: rewrite absolute/external paths in R scripts to project-relative
+RESOLVE step: rewrite absolute/external paths in scripts to project-relative
 paths, generate data-manifest.csv, and write AGENT_REPORT.md.
 
+Supports R, Python, Julia, MATLAB, and Stata.
 All mutations happen on the working copy — never the original.
 """
 
@@ -32,7 +33,10 @@ class DataManifestEntry(BaseModel):
 
 class ResolveResult(BaseModel):
     rewrites: list[PathRewrite] = Field(default_factory=list)
-    here_adoptions: int = 0
+    here_adoptions: int = 0        # R: here::here()
+    pathlib_adoptions: int = 0     # Python: Path(__file__).parents[N]
+    at_dir_adoptions: int = 0      # Julia: joinpath(@__DIR__, ...)
+    fullfile_adoptions: int = 0    # MATLAB: fullfile(fileparts(mfilename(...)))
     data_manifest: list[DataManifestEntry] = Field(default_factory=list)
     report_path: Path | None = None
     secrets_excluded: list[str] = Field(default_factory=list)
@@ -89,10 +93,11 @@ def resolve_paths(
     adopt_here: bool = True,
 ) -> ResolveResult:
     """
-    Rewrite absolute/external paths in R scripts to project-relative paths.
+    Rewrite absolute/external paths in scripts to project-relative paths.
 
+    Supports R, Python, Julia, MATLAB, Stata.
     Writes:
-      - modified R scripts (in-place on working copy)
+      - modified scripts (in-place on working copy)
       - data/data-manifest.csv
       - AGENT_REPORT.md
 
@@ -136,11 +141,18 @@ def resolve_paths(
             scripts_affected=scripts_affected,
         ))
 
-    # here::here() adoption — wrap remaining string literals that look like
-    # relative data paths: "data/..." or "output/..." etc.
+    # Language-specific relative path canonicalization.
+    # Wraps relative data/output/figures/... paths in idiomatic project-root
+    # expressions so scripts work regardless of the calling working directory.
     here_count = 0
+    pathlib_count = 0
+    at_dir_count = 0
+    fullfile_count = 0
     if adopt_here and rewrites:
         here_count = _adopt_here(working_copy, manifest_entries)
+        pathlib_count = _adopt_python_pathlib(working_copy, manifest_entries)
+        at_dir_count = _adopt_julia_at_dir(working_copy, manifest_entries)
+        fullfile_count = _adopt_matlab_fullfile(working_copy, manifest_entries)
 
     # Exclude secret files from working copy
     excluded: list[str] = []
@@ -168,6 +180,9 @@ def resolve_paths(
         working_copy,
         rewrites=rewrites,
         here_count=here_count,
+        pathlib_count=pathlib_count,
+        at_dir_count=at_dir_count,
+        fullfile_count=fullfile_count,
         manifest=manifest_entries,
         secrets_excluded=excluded,
         download_calls=scan.download_calls,
@@ -176,6 +191,9 @@ def resolve_paths(
     return ResolveResult(
         rewrites=rewrites,
         here_adoptions=here_count,
+        pathlib_adoptions=pathlib_count,
+        at_dir_adoptions=at_dir_count,
+        fullfile_adoptions=fullfile_count,
         data_manifest=manifest_entries,
         report_path=report_path,
         secrets_excluded=excluded,
@@ -184,22 +202,26 @@ def resolve_paths(
 
 
 # ---------------------------------------------------------------------------
-# here::here() adoption
+# Language-specific relative path canonicalization
 # ---------------------------------------------------------------------------
 
-# Matches relative paths like "data/foo.csv" or "output/fig1.pdf" in R strings
+# Matches relative paths like "data/foo.csv" or "output/fig1.pdf" in any string
 _REL_DATA_PATH_RE = re.compile(
     r'(["\'])((data|output|figures|tables|code|results)/[^"\']+)\1'
 )
 
 
-def _adopt_here(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
-    """
-    Wrap relative path strings in here::here(...).
+def _script_depth(script: Path, working_copy: Path) -> int:
+    """Directory depth of script relative to project root (0 = at root, 1 = in code/, etc.)"""
+    try:
+        rel = script.relative_to(working_copy)
+        return len(rel.parts) - 1
+    except ValueError:
+        return 0
 
-    Only modifies lines that are NOT already using here::here().
-    Returns total number of adoptions across all scripts.
-    """
+
+def _adopt_here(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
+    """Wrap relative path strings in R scripts with here::here(...)."""
     count = 0
     for script in working_copy.rglob("*.R"):
         text = script.read_text(errors="replace")
@@ -211,6 +233,121 @@ def _adopt_here(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
                 continue
             new_line, n = _REL_DATA_PATH_RE.subn(
                 lambda m: f'here::here("{m.group(2)}")',
+                line,
+            )
+            if n:
+                lines_out.append(new_line)
+                count += n
+                changed = True
+            else:
+                lines_out.append(line)
+        if changed:
+            script.write_text("".join(lines_out))
+    return count
+
+
+def _adopt_python_pathlib(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
+    """
+    Wrap relative data paths in Python scripts with Path(__file__).parents[N] expressions.
+
+    Inserts `from pathlib import Path` if not already present.
+    Skips scripts at project root (depth=0) where relative paths work as-is.
+    """
+    count = 0
+    for script in working_copy.rglob("*.py"):
+        depth = _script_depth(script, working_copy)
+        if depth == 0:
+            continue
+        text = script.read_text(errors="replace")
+        needs_import = (
+            "from pathlib import Path" not in text
+            and "import pathlib" not in text
+        )
+        lines_out: list[str] = []
+        changed = False
+        import_added = False
+        for line in text.splitlines(keepends=True):
+            # Insert import before first non-comment, non-blank, non-import line
+            if needs_import and not import_added and line.strip() and not line.lstrip().startswith("#"):
+                lines_out.append("from pathlib import Path\n")
+                import_added = True
+            if "Path(__file__)" in line or line.lstrip().startswith("#"):
+                lines_out.append(line)
+                continue
+            new_line, n = _REL_DATA_PATH_RE.subn(
+                lambda m, d=depth: f'str(Path(__file__).parents[{d}] / "{m.group(2)}")',
+                line,
+            )
+            if n:
+                lines_out.append(new_line)
+                count += n
+                changed = True
+            else:
+                lines_out.append(line)
+        if changed:
+            script.write_text("".join(lines_out))
+    return count
+
+
+def _adopt_julia_at_dir(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
+    """
+    Wrap relative data paths in Julia scripts with joinpath(@__DIR__, ...) expressions.
+
+    Skips scripts at project root (depth=0).
+    """
+    count = 0
+    for script in working_copy.rglob("*.jl"):
+        depth = _script_depth(script, working_copy)
+        if depth == 0:
+            continue
+        ups = ", ".join(['"..\"'] * depth)
+        text = script.read_text(errors="replace")
+        lines_out: list[str] = []
+        changed = False
+        for line in text.splitlines(keepends=True):
+            if "@__DIR__" in line or line.lstrip().startswith("#"):
+                lines_out.append(line)
+                continue
+            new_line, n = _REL_DATA_PATH_RE.subn(
+                lambda m, u=ups: f'joinpath(@__DIR__, {u}, "{m.group(2)}")',
+                line,
+            )
+            if n:
+                lines_out.append(new_line)
+                count += n
+                changed = True
+            else:
+                lines_out.append(line)
+        if changed:
+            script.write_text("".join(lines_out))
+    return count
+
+
+def _adopt_matlab_fullfile(working_copy: Path, _manifest: list[DataManifestEntry]) -> int:
+    """
+    Wrap relative data paths in MATLAB scripts with fullfile(fileparts(mfilename(...))) expressions.
+
+    Skips scripts at project root (depth=0).
+    """
+    _REL_MATLAB_RE = re.compile(
+        r"(['\"])((data|output|figures|tables|code|results)/[^'\"]+)\1"
+    )
+    count = 0
+    for script in working_copy.rglob("*.m"):
+        depth = _script_depth(script, working_copy)
+        if depth == 0:
+            continue
+        ups = ", '..'" * depth
+        prefix = f"fullfile(fileparts(mfilename('fullpath')){ups}, "
+        text = script.read_text(errors="replace")
+        lines_out: list[str] = []
+        changed = False
+        for line in text.splitlines(keepends=True):
+            if "mfilename" in line or line.lstrip().startswith("%"):
+                lines_out.append(line)
+                continue
+            new_line, n = _REL_MATLAB_RE.subn(
+                lambda m, p=prefix: f"{p}'{m.group(2)}')",
                 line,
             )
             if n:
@@ -262,6 +399,9 @@ def _write_agent_report(
     *,
     rewrites: list[PathRewrite],
     here_count: int,
+    pathlib_count: int = 0,
+    at_dir_count: int = 0,
+    fullfile_count: int = 0,
     manifest: list[DataManifestEntry],
     secrets_excluded: list[str],
     download_calls: list,
@@ -282,7 +422,18 @@ def _write_agent_report(
     else:
         lines.append("_No path rewrites needed._")
 
-    lines.append(f"\n## here::here() adoptions\n\n{here_count} relative paths wrapped.")
+    canonicalizations = [
+        ("R `here::here()`", here_count),
+        ("Python `Path(__file__).parents`", pathlib_count),
+        ("Julia `joinpath(@__DIR__, ...)`", at_dir_count),
+        ("MATLAB `fullfile(fileparts(mfilename(...)))`", fullfile_count),
+    ]
+    canon_lines = [f"  - {label}: {n}" for label, n in canonicalizations if n > 0]
+    if canon_lines:
+        lines.append("\n## Relative path canonicalization\n")
+        lines.extend(canon_lines)
+    else:
+        lines.append("\n## Relative path canonicalization\n\n_None needed._")
 
     if secrets_excluded:
         lines.append("\n## Secrets excluded\n")
