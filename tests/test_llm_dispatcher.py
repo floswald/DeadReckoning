@@ -238,6 +238,59 @@ class TestFingerprintDeduplication:
 
 
 # ---------------------------------------------------------------------------
+# Multi-language scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestMultiLanguageScenarios:
+    def test_python_missing_module_proposes_install(self) -> None:
+        """Gap note describes Python ModuleNotFoundError → dispatcher proposes install_package."""
+        gap = Gap(
+            kind=GapKind.exhibit_no_source_script,
+            exhibit=Path("figures/fig1.png"),
+            note="ModuleNotFoundError: No module named 'pandas'",
+        )
+        response = _mock_response(
+            _tool_use_block("install_package", {"package_name": "pandas"})
+        )
+        d = _make_dispatcher(response)
+        action = d.next_fix([gap], _make_context())
+        assert action is not None
+        assert action.kind == "install_package"
+        assert action.package_name == "pandas"
+
+    def test_julia_missing_package_proposes_install(self) -> None:
+        """Gap note describes Julia missing pkg → dispatcher proposes install_package."""
+        gap = Gap(
+            kind=GapKind.exhibit_no_source_script,
+            exhibit=Path("output/table1.tex"),
+            note="Package DataFrames not found in current path",
+        )
+        response = _mock_response(
+            _tool_use_block("install_package", {"package_name": "DataFrames"})
+        )
+        d = _make_dispatcher(response)
+        action = d.next_fix([gap], _make_context())
+        assert action is not None
+        assert action.kind == "install_package"
+        assert action.package_name == "DataFrames"
+
+    def test_mixed_gap_kinds_llm_called_once_per_next_fix(self) -> None:
+        """Three gaps of different kinds → LLM called exactly once per next_fix invocation."""
+        gaps = [
+            Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("fig1.pdf")),
+            Gap(kind=GapKind.exhibit_missing_from_disk, exhibit=Path("table1.tex")),
+            Gap(kind=GapKind.script_writes_wrong_path, exhibit=Path("fig2.pdf")),
+        ]
+        response = _mock_response(
+            _tool_use_block("install_package", {"package_name": "ggplot2"})
+        )
+        d = _make_dispatcher(response)
+        d.next_fix(gaps, _make_context())
+        assert d._client.messages.create.call_count == 1
+
+
+# ---------------------------------------------------------------------------
 # Integration test — requires real API key
 # ---------------------------------------------------------------------------
 

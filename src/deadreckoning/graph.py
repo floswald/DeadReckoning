@@ -370,6 +370,25 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
 _WRITE_PATTERNS[".r"] = _WRITE_PATTERNS[".R"]
 
 
+_HERE_RE = re.compile(r'\bhere\s*\(([^)]+)\)')
+_FILE_PATH_RE = re.compile(r'\bfile\.path\s*\(([^)]+)\)')
+
+
+def _resolve_path_calls(text: str) -> str:
+    """
+    Replace here("a", "b") and file.path("a", "b") with "a/b" so that
+    downstream write-call patterns can match bare string literals.
+    Handles R's here::here() idiom (very common; used by here package).
+    """
+    def _join(m: re.Match) -> str:
+        args = re.findall(r'["\']([^"\']+)["\']', m.group(1))
+        return f'"{"/".join(args)}"' if args else m.group(0)
+
+    text = _HERE_RE.sub(_join, text)
+    text = _FILE_PATH_RE.sub(_join, text)
+    return text
+
+
 def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
     """Return all file-write calls found in a script."""
     ext = script.suffix.lower() if script.suffix else script.suffix
@@ -378,7 +397,10 @@ def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
         return []
 
     try:
-        lines = script.read_text(errors="replace").splitlines()
+        raw = script.read_text(errors="replace")
+        # Pre-process here() / file.path() so patterns match bare string args
+        processed = _resolve_path_calls(raw)
+        lines = processed.splitlines()
     except OSError:
         return []
 

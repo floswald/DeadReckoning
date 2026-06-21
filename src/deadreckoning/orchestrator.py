@@ -12,12 +12,15 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .ask import run_ask_step
 from .capture import capture_env
+from .clean import run_clean_step
 from .confidentiality import check_restricted
-from .docker import BuildResult, ContainerRunResult, build_image, generate_dockerfile, run_in_container
+from .deliver import run_deliver_step
+from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, AuthorQuestion, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
+from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -34,8 +37,11 @@ class PipelineResult:
     resolve: ResolveResult | None = None
     ask: AuthorQA | None = None
     needs_author_input: bool = False
+    clean: CleanResult | None = None
+    deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
+    docker_fix: DockerFixResult | None = None
     native_run: RunResult | None = None
     native_validation: ValidationResult | None = None
     dockerfile: str | None = None
@@ -55,77 +61,6 @@ class PipelineResult:
             and self.container_validation.outputs.success
         )
 
-
-_AMBIGUOUS_KINDS = {
-    GapKind.exhibit_missing_from_disk,
-    GapKind.exhibit_no_source_script,
-}
-
-_QUESTIONS_FILE = "QUESTIONS.md"
-
-
-def _identify_ambiguous_gaps(graph: DependencyGraph) -> list[AuthorQuestion]:
-    questions = []
-    for gap in graph.gaps:
-        if gap.kind not in _AMBIGUOUS_KINDS:
-            continue
-        exhibit = str(gap.exhibit) if gap.exhibit else (gap.location or "unknown")
-        if gap.kind == GapKind.exhibit_missing_from_disk:
-            q = AuthorQuestion(
-                gap_kind=gap.kind.value,
-                exhibit=exhibit,
-                question=(
-                    f"The file `{exhibit}` is referenced in the paper but is not present on disk "
-                    "and no script appears to produce it. "
-                    "Is this file restricted data? If so, can you provide a path or description?"
-                ),
-                context=gap.note,
-            )
-        else:
-            q = AuthorQuestion(
-                gap_kind=gap.kind.value,
-                exhibit=exhibit,
-                question=(
-                    f"No script was found that produces `{exhibit}`. "
-                    "Which script creates this exhibit? Please edit this file with the script path."
-                ),
-                context=gap.note,
-            )
-        questions.append(q)
-    return questions
-
-
-def _write_questions_file(working_copy: Path, questions: list[AuthorQuestion]) -> Path:
-    lines = [
-        "# DeadReckoning — Author Questions\n",
-        "Please answer the questions below and re-run `deadreckoning run`.\n",
-        "Fill in the `> Answer:` lines.\n\n",
-    ]
-    for i, q in enumerate(questions, 1):
-        lines.append(f"## Question {i}: {q.exhibit or q.gap_kind}\n\n")
-        lines.append(f"**Gap kind:** `{q.gap_kind}`\n\n")
-        if q.context:
-            lines.append(f"**Context:** {q.context}\n\n")
-        lines.append(f"{q.question}\n\n")
-        lines.append("> Answer: \n\n")
-    path = working_copy / _QUESTIONS_FILE
-    path.write_text("".join(lines))
-    return path
-
-
-def _parse_author_responses(working_copy: Path) -> list:
-    from .models import AuthorResponse
-    path = working_copy / _QUESTIONS_FILE
-    if not path.exists():
-        return []
-    text = path.read_text()
-    responses = []
-    for line in text.splitlines():
-        if line.startswith("> Answer:"):
-            answer = line[len("> Answer:"):].strip()
-            if answer:
-                responses.append(AuthorResponse(answer=answer))
-    return responses
 
 
 def _detect_master_script(project_root: Path) -> str:
@@ -203,21 +138,13 @@ def run_pipeline(
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
 
-    # Step 5b: ASK — surface ambiguous gaps to author before attempting to run
-    ambiguous = _identify_ambiguous_gaps(result.graph)
-    questions_path = working_copy / _QUESTIONS_FILE
-    if ambiguous and not questions_path.exists():
-        _write_questions_file(working_copy, ambiguous)
-        result.ask = AuthorQA(questions=ambiguous)
-        result.needs_author_input = True
-        result.error = f"Author input required: see {_QUESTIONS_FILE} in working copy"
+    # Step 5b: ASK — surface gaps that require author input
+    result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
+        working_copy, result.graph, result.env_spec, result.scan
+    )
+    if result.needs_author_input:
+        result.error = "Author input required: see QUESTIONS.md in working copy"
         return result
-    elif questions_path.exists():
-        responses = _parse_author_responses(working_copy)
-        result.ask = AuthorQA(
-            questions=ambiguous,
-            responses=responses,
-        )
 
     # Step 6: FIX loop — deterministic fixes (e.g. wrong output paths)
     fix_result, result.graph = run_fix_loop(working_copy, result.graph, result.env_spec)
@@ -248,17 +175,39 @@ def run_pipeline(
 
     result.native_validation = validate_outputs(working_copy, result.graph)
 
+    # CLEAN: identify unreachable files; write CLEANUP.md (non-blocking)
+    result.clean, _needs_review = run_clean_step(working_copy, result.graph)
+
     if skip_docker:
         return result
 
-    # Step 6+7+8: Docker
-    result.dockerfile = generate_dockerfile(result.env_spec)
-    result.docker_build = build_image(working_copy, result.dockerfile, docker_tag)
-    if not result.docker_build.success:
-        result.error = "Docker build failed"
+    # Step 6+7+8: Docker — build + run with auto-fix loop
+    result.docker_fix = run_docker_fix_loop(
+        working_copy,
+        result.graph,
+        result.env_spec,
+        image_tag=docker_tag,
+        master_script=master_script,
+    )
+    if result.docker_fix.final_build is not None:
+        result.dockerfile = result.docker_fix.final_build.dockerfile_text
+        result.docker_build = result.docker_fix.final_build
+    if result.docker_fix.final_run is not None:
+        result.container_validation = result.docker_fix.final_run
+    if not result.docker_fix.converged:
+        result.error = result.docker_fix.error
         return result
-    result.container_validation = run_in_container(
-        working_copy, docker_tag, result.graph, master_script=master_script
+
+    # DELIVER: write README.md template + DELIVERY_REPORT.md
+    result.deliver = run_deliver_step(
+        working_copy,
+        result.graph,
+        result.env_spec,
+        qa=result.ask,
+        clean=result.clean,
+        resolve=result.resolve,
+        native_ok=result.native_ok,
+        container_ok=result.container_ok,
     )
 
     return result

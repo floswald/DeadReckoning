@@ -182,3 +182,44 @@ class Manifest(BaseModel):
     is_restricted: bool = False
     restricted_trigger: Optional[str] = None
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# CLEAN step models
+# ---------------------------------------------------------------------------
+
+
+class CleanChoice(BaseModel):
+    path: Path
+    kind: str                   # "script", "data", "output", "other"
+    action: str = "keep"        # "delete", "archive", "keep"
+    reason: Optional[str] = None
+
+
+class CleanApplyResult(BaseModel):
+    deleted: list[Path] = Field(default_factory=list)
+    archived: list[Path] = Field(default_factory=list)
+    kept: list[Path] = Field(default_factory=list)
+
+    @property
+    def total_cleaned(self) -> int:
+        return len(self.deleted) + len(self.archived)
+
+
+class CleanResult(BaseModel):
+    orphans: list[OrphanFile] = Field(default_factory=list)
+    choices: list[CleanChoice] = Field(default_factory=list)
+    apply: Optional[CleanApplyResult] = None
+
+
+# ---------------------------------------------------------------------------
+# DELIVER step models
+# ---------------------------------------------------------------------------
+
+
+class DeliverResult(BaseModel):
+    readme_path: Optional[Path] = None
+    report_path: Optional[Path] = None
+    package_path: Optional[Path] = None   # set only if zip assembled
+    included_count: int = 0
+    excluded_count: int = 0
