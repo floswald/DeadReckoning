@@ -16,10 +16,11 @@ from .ask import run_ask_step
 from .capture import capture_env
 from .clean import run_clean_step
 from .confidentiality import check_restricted
+from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, build_image, generate_dockerfile, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, CleanResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
+from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -37,6 +38,7 @@ class PipelineResult:
     ask: AuthorQA | None = None
     needs_author_input: bool = False
     clean: CleanResult | None = None
+    deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
     native_run: RunResult | None = None
@@ -186,6 +188,18 @@ def run_pipeline(
         return result
     result.container_validation = run_in_container(
         working_copy, docker_tag, result.graph, master_script=master_script
+    )
+
+    # DELIVER: write README.md template + DELIVERY_REPORT.md
+    result.deliver = run_deliver_step(
+        working_copy,
+        result.graph,
+        result.env_spec,
+        qa=result.ask,
+        clean=result.clean,
+        resolve=result.resolve,
+        native_ok=result.native_ok,
+        container_ok=result.container_ok,
     )
 
     return result

@@ -210,3 +210,16 @@ class CleanResult(BaseModel):
     orphans: list[OrphanFile] = Field(default_factory=list)
     choices: list[CleanChoice] = Field(default_factory=list)
     apply: Optional[CleanApplyResult] = None
+
+
+# ---------------------------------------------------------------------------
+# DELIVER step models
+# ---------------------------------------------------------------------------
+
+
+class DeliverResult(BaseModel):
+    readme_path: Optional[Path] = None
+    report_path: Optional[Path] = None
+    package_path: Optional[Path] = None   # set only if zip assembled
+    included_count: int = 0
+    excluded_count: int = 0
