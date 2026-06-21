@@ -1,4 +1,4 @@
-"""Real-world test: Mitman et al. (JPE 2016) replication package.
+"""Real-world test: Mitman et al. (JPE forthcoming 2026) replication package.
 
 Mixed Stata + Python package. Tests:
 - GRAPH step on a multi-language, multi-script package
@@ -20,11 +20,11 @@ from deadreckoning.graph import build_graph
 from deadreckoning.models import GapKind
 from deadreckoning.scan import scan_scripts
 
-FIXTURE = Path(__file__).parent / "fixtures" / "real-world" / "mitman_2016"
+FIXTURE = Path(__file__).parent / "fixtures" / "real-world" / "mitman_2026"
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE.exists(),
-    reason="Real-world fixture not present — add to tests/fixtures/real-world/mitman_2016/",
+    reason="Real-world fixture not present — add to tests/fixtures/real-world/mitman_2026/",
 )
 
 
