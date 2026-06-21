@@ -36,19 +36,57 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
 
     .R / .r  → Rscript
     .do      → Stata (via stata.run_stata, wrapped into RunResult)
+    .jl      → julia
+    .py      → python
     """
     ext = Path(master_script).suffix.lower()
     if ext in (".r",):
         return _run_r(project_root, master_script)
     if ext == ".do":
         return _run_stata(project_root, master_script)
-    # fallback: treat as R
-    return _run_r(project_root, master_script)
+    if ext == ".jl":
+        return _run_julia(project_root, master_script)
+    if ext == ".py":
+        return _run_python(project_root, master_script)
+    return RunResult(
+        returncode=1,
+        stdout="",
+        stderr=f"Unsupported script extension '{ext}' for {master_script}",
+    )
 
 
 def _run_r(project_root: Path, master_script: str) -> RunResult:
     result = subprocess.run(
         ["Rscript", master_script],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    return RunResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+
+
+def _run_julia(project_root: Path, master_script: str) -> RunResult:
+    result = subprocess.run(
+        ["julia", master_script],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    return RunResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+
+
+def _run_python(project_root: Path, master_script: str) -> RunResult:
+    import sys
+    result = subprocess.run(
+        [sys.executable, master_script],
         cwd=project_root,
         capture_output=True,
         text=True,
