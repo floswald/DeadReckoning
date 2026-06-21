@@ -29,10 +29,10 @@ DETECT → CAPTURE → GRAPH → SCAN → ASK → RESOLVE
 
 | Module | Purpose |
 |--------|---------|
-| `models.py` | Pydantic schema for everything |
+| `models.py` | Pydantic schema for everything (incl. CleanResult, DeliverResult) |
 | `confidentiality.py` | Filename-only scan — runs before any file read |
-| `graph.py` | `build_graph()` → LaTeX → exhibits → scripts → data |
-| `capture.py` | renv.lock / requirements.txt / .do / Manifest.toml → `EnvSpec` — R, Python, Julia, Stata, MATLAB |
+| `graph.py` | `build_graph()` → LaTeX → exhibits → scripts → data; `here()`/`file.path()` pre-processing |
+| `capture.py` | renv.lock / requirements.txt / .do / Manifest.toml / DESCRIPTION → `EnvSpec` |
 | `scan.py` | Package + external path extraction — R, Python, Julia, Stata, MATLAB |
 | `runner.py` | Dispatch by extension: `.R` `.do` `.jl` `.py` `.m` |
 | `stata.py` | Three-state detection + advice, log scanning, ssc capture |
@@ -41,6 +41,9 @@ DETECT → CAPTURE → GRAPH → SCAN → ASK → RESOLVE
 | `fix_loop.py` | Deterministic FIX loop (wrong-output-path) + LLM dispatcher hook |
 | `llm_dispatcher.py` | Claude tool-call FIX loop |
 | `docker.py` | Dockerfile generation (R/Python/Julia/unsupported), build, container validation |
+| `ask.py` | Author Q&A: gap questions, proprietary license, low-conf env, QUESTIONS.md round-trip |
+| `clean.py` | Orphan detection (BFS from exhibit sources), CLEANUP.md, delete/archive/keep |
+| `deliver.py` | AEA README template, DELIVERY_REPORT.md, optional zip assembly |
 | `orchestrator.py` | Sequential pipeline, auto-detects master script |
 | `cli.py` | CLI entrypoint |
 
@@ -60,12 +63,17 @@ See issue #10 for protocol on adding them.
 | # | Title | Status |
 |---|-------|--------|
 | 6 | FIX loop — LLM orchestration (multi-language prompts) | Phase 4 |
-| — | ASK step — author Q&A flow (stub in orchestrator) | Phase 4 |
-| — | CLEAN step — dead-file detection + archive | not started |
-| — | DELIVER step — final package assembly | not started |
-| — | Docker FIX loop — Python/Julia package detection | after native proven |
+| — | Docker FIX loop — Python/Julia package detection in container logs | after native proven |
 | 3 | Fixture generator | deferred |
 | 9 | Real-world test cases | ongoing |
+
+## Test counts (as of last update)
+
+- **Total passing:** 585 (526 fast + 59 real-world in CI)
+- **Pre-existing failures:** 3 (Stata license on dev machine, Docker not in CI)
+- Key test files: `test_ask.py` (44), `test_clean.py` (39), `test_deliver.py` (42),
+  `test_resolve_multilang.py` (39), `test_matlab.py` (31), `test_runner_julia_python.py` (13),
+  `test_realworld_bus_locations.py` (48), `test_realworld_bus_location.py` (10)
 
 ## Key gotchas
 
@@ -74,6 +82,7 @@ See issue #10 for protocol on adding them.
 - **MATLAB exits 0 on error (pre-R2019b)** — scan stdout/stderr for `Error/Unrecognized/Undefined`
 - **MATLAB `run.m` naming conflict** — script named `run.m` shadows built-in `run()` in `-batch` mode; use `master.m` or any other name
 - **Julia `include` resolves relative to script dir** — use `joinpath(@__DIR__, ...)` not bare relative paths
+- **`here()` / `file.path()`** — pre-processed in `_extract_write_calls` so write-call patterns match; crucial for R replication packages
 - **LaTeX macros**: `\def`, `\newcommand`, `\graphicspath` all need resolving
 - **Path resolution**: try script-relative AND project-root-relative
 - **Working copy safety**: `orchestrator.run_pipeline()` always copies first
