@@ -14,11 +14,12 @@ from pathlib import Path
 
 from .ask import run_ask_step
 from .capture import capture_env
+from .clean import run_clean_step
 from .confidentiality import check_restricted
 from .docker import BuildResult, ContainerRunResult, build_image, generate_dockerfile, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
+from .models import AuthorQA, CleanResult, DependencyGraph, EnvSpec, GapKind, RestrictedStatus
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -35,6 +36,7 @@ class PipelineResult:
     resolve: ResolveResult | None = None
     ask: AuthorQA | None = None
     needs_author_input: bool = False
+    clean: CleanResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
     native_run: RunResult | None = None
@@ -169,6 +171,9 @@ def run_pipeline(
             return result
 
     result.native_validation = validate_outputs(working_copy, result.graph)
+
+    # CLEAN: identify unreachable files; write CLEANUP.md (non-blocking)
+    result.clean, _needs_review = run_clean_step(working_copy, result.graph)
 
     if skip_docker:
         return result
