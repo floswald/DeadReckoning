@@ -2,11 +2,17 @@
 
 [![CI](https://github.com/floswald/DeadReckoning/actions/workflows/ci.yml/badge.svg)](https://github.com/floswald/DeadReckoning/actions/workflows/ci.yml)
 
+
 > **Dead reckoning** *(navigation)*: the process of estimating one's current position based on a previously known position, then accounting for speed, direction, and elapsed time — without access to external reference points such as GPS. Accurate fixes require cross-referencing multiple imperfect signals. The further you have drifted from the last known position, the harder the reckoning.
 
 **Status:** draft v0.1  
 **Audience:** economics researchers with little or no experience making their work computationally reproducible  
 **Goal:** help an author whose research project is not yet reproducible get it into a state where all outputs can be regenerated from scratch — and then preserve that state in a Docker container for submission
+
+
+![](picture.png)
+
+
 
 ---
 
