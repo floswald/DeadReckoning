@@ -83,6 +83,8 @@ def run_pipeline(
     skip_docker: bool = False,
     skip_run: bool = False,
     intake: IntakeResult | None = None,
+    stata_license: Path | None = None,
+    stata_image: str | None = None,
 ) -> PipelineResult:
     """
     Run the full DeadReckoning pipeline on a copy of project_root.
@@ -134,6 +136,9 @@ def run_pipeline(
 
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)
+    # stata_image cannot be inferred from disk (proprietary, no lockfile) — author-supplied
+    if stata_image and result.env_spec.language.upper() == "STATA":
+        result.env_spec.stata_image = stata_image
 
     # Step 4: scan all scripts (multi-language)
     result.scan = scan_scripts(working_copy)
@@ -191,6 +196,7 @@ def run_pipeline(
         result.env_spec,
         image_tag=docker_tag,
         master_script=master_script,
+        stata_license=stata_license,
     )
     if result.docker_fix.final_build is not None:
         result.dockerfile = result.docker_fix.final_build.dockerfile_text

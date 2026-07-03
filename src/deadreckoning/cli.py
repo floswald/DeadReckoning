@@ -190,6 +190,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         project,
         master_script=args.master_script or None,
         skip_docker=args.skip_docker,
+        stata_image=args.stata_image or None,
+        stata_license=Path(args.stata_license) if args.stata_license else None,
     )
 
     if args.json:
@@ -317,6 +319,12 @@ def main() -> None:
                        help="Override auto-detected master script (e.g. code/run.R)")
     p_run.add_argument("--skip-docker", action=argparse.BooleanOptionalAction, default=True,
                        help="Skip Docker steps (default: skip; use --no-skip-docker to enable)")
+    p_run.add_argument("--stata-image", metavar="IMAGE",
+                       help="Pre-built private Stata Docker image tag "
+                            "(e.g. dataeditors/stata18_5-mp:2025-02-26) — "
+                            "cannot be inferred from disk, no public base image exists")
+    p_run.add_argument("--stata-license", metavar="PATH",
+                       help="Host path to stata.lic, bind-mounted read-only at container run time")
     p_run.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # detect-stata

@@ -128,6 +128,9 @@ class EnvSpec(BaseModel):
     snapshot_url: Optional[str] = None     # resolved PPM URL
     confidence: float = 0.0               # 0.0–1.0
     note: Optional[str] = None            # human-readable advice (e.g. MATLAB login)
+    stata_image: Optional[str] = None     # pre-built private Stata base image tag
+                                           # (e.g. "dataeditors/stata18_5-mp:2025-02-26")
+                                           # — cannot be inferred from disk; author-supplied
 
 
 # ---------------------------------------------------------------------------

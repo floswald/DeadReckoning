@@ -225,6 +225,30 @@ def _unsupported_dockerfile(language: str) -> str:
     )
 
 
+def _stata_dockerfile(env_spec: EnvSpec) -> str:
+    """
+    Dockerfile FROM a pre-built private Stata image (env_spec.stata_image).
+
+    Stata binaries are proprietary and license-locked: there is no public
+    base image to pull, and DeadReckoning cannot build one (that requires a
+    licensed workstation install run through AEADataEditor/docker-stata's
+    capture.sh, outside this pipeline's reach). If stata_image is unset,
+    fall back to manual-steps guidance.
+
+    The license file itself is never baked into the image — it is bind-
+    mounted at container-run time (see run_in_container / _build_run_command).
+    """
+    if not env_spec.stata_image:
+        return _unsupported_dockerfile(env_spec.language)
+    return (
+        f"FROM --platform={_PROPRIETARY_PLATFORM} {env_spec.stata_image}\n"
+        "\n"
+        "WORKDIR /project\n"
+        "ENTRYPOINT []\n"
+        'CMD ["bash"]\n'
+    )
+
+
 def generate_dockerfile(env_spec: EnvSpec) -> str:
     """Return Dockerfile text for env_spec. Never COPYs code or data."""
     lang = env_spec.language.upper()
@@ -234,6 +258,8 @@ def generate_dockerfile(env_spec: EnvSpec) -> str:
         return _python_dockerfile(env_spec)
     if lang == "JULIA":
         return _julia_dockerfile(env_spec)
+    if lang == "STATA":
+        return _stata_dockerfile(env_spec)
     return _unsupported_dockerfile(env_spec.language)
 
 
@@ -359,13 +385,18 @@ def run_in_container(
     master_script: Optional[str] = None,
     env_spec: Optional[EnvSpec] = None,
     platform: str = _DEFAULT_PLATFORM,
+    stata_license: Optional[Path] = None,
 ) -> ContainerRunResult:
     """
     Mount project_root as /project (rw), run master_script.
     Outputs written by the script land back on the host via the volume.
     Validate on host after run.
+
+    stata_license: host path to a Stata license file, bind-mounted read-only
+    to /usr/local/stata/stata.lic. Never baked into the image (see
+    _stata_dockerfile). Ignored for non-Stata languages.
     """
-    cmd = _build_run_command(image_tag, project_root, master_script, env_spec, platform)
+    cmd = _build_run_command(image_tag, project_root, master_script, env_spec, platform, stata_license)
     result = subprocess.run(cmd, capture_output=True, text=True)
     run_result = RunResult(
         returncode=result.returncode,
@@ -386,20 +417,26 @@ def _build_run_command(
     master_script: Optional[str],
     env_spec: Optional[EnvSpec],
     platform: str,
+    stata_license: Optional[Path] = None,
 ) -> list[str]:
     lang = (env_spec.language.upper() if env_spec else "R")
     if master_script is None:
         master_script = _default_master_script(lang, project_root)
 
     shell_cmd = _shell_command(lang, master_script)
-    return [
+    cmd = [
         "docker", "run", "--rm",
         f"--platform={platform}",
         "-v", f"{project_root}:/project",
+    ]
+    if lang == "STATA" and stata_license is not None:
+        cmd += ["-v", f"{stata_license}:/usr/local/stata/stata.lic:ro"]
+    cmd += [
         "-w", "/project",
         image_tag,
         "bash", "-c", shell_cmd,
     ]
+    return cmd
 
 
 def _default_master_script(language: str, project_root: Path) -> str:
@@ -424,7 +461,7 @@ def _shell_command(language: str, master_script: str) -> str:
     if language == "JULIA":
         return f"julia {master_script}"
     if language == "STATA":
-        return f"stata -b do {master_script}"
+        return f"stata-mp -b do {master_script}"
     if language == "MATLAB":
         stem = Path(master_script).stem
         return f"matlab -batch \"{stem}\""
@@ -564,6 +601,7 @@ def run_docker_fix_loop(
     max_iterations: int = 5,
     platform: str = _DEFAULT_PLATFORM,
     master_script: Optional[str] = None,
+    stata_license: Optional[Path] = None,
 ) -> DockerFixResult:
     """
     Build → run → check → fix → repeat.
@@ -603,6 +641,7 @@ def run_docker_fix_loop(
         run = run_in_container(
             project_root, image_tag, graph,
             master_script=master_script, env_spec=env_spec, platform=platform,
+            stata_license=stata_license,
         )
         result.run_attempts += 1
         result.final_run = run
