@@ -857,6 +857,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
         gaps=gaps,
         data_files=data_files,
         orphan_files=[],
+        script_writes=all_writes,
     )
 
 

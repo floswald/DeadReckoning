@@ -474,3 +474,23 @@ def test_csvautotabular_sourced_when_script_writes_same_csv(tmp_path):
     assert not any(g.kind == GapKind.exhibit_no_source_script for g in graph.gaps)
     exhibit = next(e for e in graph.exhibits if e.tex_path == Path("data/results.csv"))
     assert exhibit.source is not None
+
+
+def test_script_writes_exposed_on_graph(tmp_path):
+    """
+    DependencyGraph.script_writes must expose every write call found, not
+    just the ones matched to an exhibit — provenance tracing needs the full
+    list (including intermediate-data writes like saveRDS) to walk
+    multi-hop chains.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "code" / "clean.R").write_text('saveRDS(x, "data/clean.Rds")\n')
+    (tmp_path / "code" / "tables.R").write_text(
+        'x <- readRDS("data/clean.Rds")\nwriteLines(x, "tables/out.tex")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\input{tables/out.tex}")
+    graph = build_graph(tmp_path)
+    written_names = {w.written_path.name for w in graph.script_writes}
+    assert "clean.Rds" in written_names
+    assert "out.tex" in written_names

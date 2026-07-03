@@ -27,6 +27,7 @@ from .models import (
     DependencyGraph,
     EnvSpec,
 )
+from .provenance import data_file_exhibits, trace_exhibit_inputs
 
 # Files written by DeadReckoning itself — excluded from the delivered package
 _DR_INTERNAL = frozenset({
@@ -34,6 +35,7 @@ _DR_INTERNAL = frozenset({
     "CLEANUP.md",
     "AGENT_REPORT.md",
     "DELIVERY_REPORT.md",
+    "DATA-EXHIBIT-MAP.md",
     "data/data-manifest.csv",
 })
 _SKIP_DIRS = frozenset({
@@ -119,16 +121,23 @@ def generate_readme(
     h(2, "Dataset List")
     local_data = [df for df in graph.data_files if not df.is_external]
     if local_data:
+        feeds = data_file_exhibits(trace_exhibit_inputs(graph))
         rows = []
         for df in local_data:
             try:
                 rel = df.path.relative_to(graph.project_root)
             except ValueError:
                 rel = df.path
-            rows.append([f"`{rel}`", "[Source — TODO]", "Yes"])
-        table(["Filename", "Source", "Provided"], rows)
+            exhibits_fed = feeds.get(df.path, [])
+            feeds_str = ", ".join(f"`{e}`" for e in sorted(exhibits_fed, key=str)) or "[TODO — not traced]"
+            rows.append([f"`{rel}`", "[Source — TODO]", "Yes", feeds_str])
+        table(["Filename", "Source", "Provided", "Feeds Exhibit(s)"], rows)
     else:
         p("TODO: list all data files used.")
+    p(
+        "See `DATA-EXHIBIT-MAP.md` for the full exhibit → data-input trace, ",
+        "including any intermediate processing scripts.",
+    )
 
     # ── Computational Requirements ─────────────────────────────────────────
     h(2, "Computational Requirements")

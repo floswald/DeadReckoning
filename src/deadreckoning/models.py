@@ -78,6 +78,7 @@ class DependencyGraph(BaseModel):
     data_files: list[DataFile] = Field(default_factory=list)
     orphan_files: list[OrphanFile] = Field(default_factory=list)
     script_order: list[Path] = Field(default_factory=list)  # topological order if resolvable
+    script_writes: list[ScriptWritesExhibit] = Field(default_factory=list)  # every write call found, not just exhibit sources
 
     @property
     def is_complete(self) -> bool:

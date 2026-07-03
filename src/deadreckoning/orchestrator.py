@@ -21,6 +21,7 @@ from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_imag
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
 from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, RestrictedStatus
+from .provenance import render_data_exhibit_map, trace_exhibit_inputs, write_data_exhibit_map
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -32,6 +33,7 @@ class PipelineResult:
     working_copy: Path
     restricted: RestrictedStatus
     graph: DependencyGraph | None = None
+    provenance: dict[Path, list[Path]] | None = None
     env_spec: EnvSpec | None = None
     scan: ScanResult | None = None
     resolve: ResolveResult | None = None
@@ -133,6 +135,10 @@ def run_pipeline(
 
     # Step 2: graph
     result.graph = build_graph(working_copy)
+
+    # Step 2b: trace exhibit <- data-input provenance; write DATA-EXHIBIT-MAP.md
+    result.provenance = trace_exhibit_inputs(result.graph)
+    write_data_exhibit_map(working_copy, render_data_exhibit_map(result.provenance))
 
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)

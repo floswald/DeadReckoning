@@ -47,7 +47,7 @@ def _to_jsonable(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_to_jsonable(v) for v in obj]
     if isinstance(obj, dict):
-        return {k: _to_jsonable(v) for k, v in obj.items()}
+        return {(str(k) if isinstance(k, Path) else k): _to_jsonable(v) for k, v in obj.items()}
     # pydantic BaseModel
     try:
         return _to_jsonable(obj.model_dump())
