@@ -23,9 +23,20 @@ from .models import (
 # includestandalone (standalone package, common for TikZ figures): compiles
 #   name.tex separately; resolved like an extension-less includegraphics ref.
 # includepdf (pdfpages): embeds an external PDF, usually with [pages=...].
+# csvautotabular/csvreader (csvsimple), pgfplotstabletypeset/pgfplotstableread
+#   (pgfplotstable): render a data file directly into the paper — no
+#   intermediate script-written .tex table exists. Treating the data file
+#   itself as "the exhibit" requires no new architecture: existing
+#   write-call sourcing already matches by exact path, so if a script
+#   writes that same CSV, it's picked up unchanged; if nothing does, it's
+#   flagged missing exactly like any other exhibit. csvreader/
+#   pgfplotstableread take additional trailing brace-args (column defs,
+#   templates) which this pattern harmlessly ignores — only the first
+#   brace group (the file) is captured.
 _TEX_INCLUDE_RE = re.compile(
     r"\\(?:includegraphics|input|include|lstinputlisting|verbatiminput|includesvg|"
-    r"includestandalone|includepdf)"
+    r"includestandalone|includepdf|"
+    r"csvautotabular|csvreader|pgfplotstabletypeset|pgfplotstableread)"
     r"\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}",
     re.MULTILINE,
 )
@@ -41,6 +52,13 @@ _TEX_SUBFILE_RE = re.compile(
 # Only treated as exhibits when target is NOT a .tex prose file.
 _TEX_IMPORT_RE = re.compile(
     r"\\(?:import|subimport)\s*\{([^}]*)\}\s*\{([^}]+)\}",
+    re.MULTILINE,
+)
+
+# \DTLloaddb{dbname}{data.csv} (datatool) — file is the *second* brace-arg,
+# unlike every other pattern here.
+_TEX_DTLLOADDB_RE = re.compile(
+    r"\\DTLloaddb\s*(?:\[[^\]]*\])?\s*\{[^}]*\}\s*\{([^}]+)\}",
     re.MULTILINE,
 )
 
@@ -354,6 +372,16 @@ def _extract_exhibits_from_tex(
         ref = (dir_arg.rstrip("/") + "/" + file_arg) if dir_arg else file_arg
         if _is_prose_tex(ref):
             continue  # structural include — contents scanned via rglob
+        resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
+        exhibits.append(resolved)
+
+    # \DTLloaddb{dbname}{data.csv} (datatool) — file is the second brace-arg
+    for ref in _TEX_DTLLOADDB_RE.findall(text):
+        ref = ref.strip()
+        if macros:
+            ref = _expand_macros(ref, macros)
+        if ref.startswith("\\"):
+            continue
         resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
         exhibits.append(resolved)
 

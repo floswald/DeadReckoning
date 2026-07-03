@@ -407,3 +407,70 @@ def test_includepdf_missing_flagged(tmp_path):
     (tmp_path / "paper.tex").write_text(r"\includepdf[pages=-]{missing.pdf}")
     graph = build_graph(tmp_path)
     assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+# ---------------------------------------------------------------------------
+# Direct data-to-table rendering (csvsimple, pgfplotstable, datatool) — the
+# data file itself is "the exhibit", no intermediate script-written .tex.
+# ---------------------------------------------------------------------------
+
+
+def test_csvautotabular_present_data_not_flagged(tmp_path):
+    (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "paper.tex").write_text(r"\csvautotabular{data.csv}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    assert any(e.tex_path == Path("data.csv") for e in graph.exhibits)
+
+
+def test_csvautotabular_missing_data_flagged(tmp_path):
+    (tmp_path / "paper.tex").write_text(r"\csvautotabular{missing.csv}")
+    graph = build_graph(tmp_path)
+    assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_csvreader_first_arg_is_file_trailing_args_ignored(tmp_path):
+    (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "paper.tex").write_text(
+        r"\csvreader{data.csv}{a=\colA,b=\colB}{\colA\ \colB}"
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_pgfplotstabletypeset_detected(tmp_path):
+    (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "paper.tex").write_text(r"\pgfplotstabletypeset{data.csv}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_dtlloaddb_second_arg_is_file(tmp_path):
+    (tmp_path / "data.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "paper.tex").write_text(r"\DTLloaddb{mydata}{data.csv}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    assert any(e.tex_path == Path("data.csv") for e in graph.exhibits)
+
+
+def test_dtlloaddb_missing_data_flagged(tmp_path):
+    (tmp_path / "paper.tex").write_text(r"\DTLloaddb{mydata}{missing.csv}")
+    graph = build_graph(tmp_path)
+    assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_csvautotabular_sourced_when_script_writes_same_csv(tmp_path):
+    """
+    If a script writes the exact CSV that csvautotabular renders, the
+    existing exact-path write-call sourcing must pick it up unchanged —
+    no new architecture needed for this case.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "make_data.R").write_text(
+        'write.csv(df, "data/results.csv")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\csvautotabular{data/results.csv}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_no_source_script for g in graph.gaps)
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("data/results.csv"))
+    assert exhibit.source is not None
