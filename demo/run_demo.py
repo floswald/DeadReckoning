@@ -65,6 +65,7 @@ def act2_pipeline_catches_it(intake) -> None:
     from deadreckoning.ask import identify_questions
     from deadreckoning.graph import build_graph
     from deadreckoning.scan import scan_scripts
+    from deadreckoning.provenance import trace_exhibit_inputs
 
     banner("ACT 2 — The pipeline reads the code and catches it")
 
@@ -81,6 +82,15 @@ def act2_pipeline_catches_it(intake) -> None:
     for q in questions:
         if q.gap_kind == "intake_contradiction":
             print(f"  [{q.gap_kind}] {q.question}")
+
+    print("\nAnd it doesn't just spot the undeclared file — it traces exactly")
+    print("which exhibit each data file feeds (the data availability statement,")
+    print("written automatically):")
+    mapping = trace_exhibit_inputs(graph)
+    for exhibit, inputs in mapping.items():
+        for data_path in inputs:
+            flag = "  <-- undeclared in README" if data_path.name == "region_boost.csv" else ""
+            print(f"  {data_path}  ->  {exhibit}{flag}")
 
 
 def act3_full_pipeline(stata_image: str | None, stata_license: str | None, skip_docker: bool) -> None:

@@ -50,6 +50,15 @@ def main() -> None:
     for ep in scan.external_paths:
         print(f"  {ep.script}:{ep.line}  external path ({ep.kind}): {ep.raw}")
 
+    banner("GRAPH traces the exhibit back to its data input")
+    graph = build_graph(PROJECT)
+    from deadreckoning.provenance import trace_exhibit_inputs
+    for exhibit, inputs in trace_exhibit_inputs(graph).items():
+        for data_path in inputs:
+            print(f"  {data_path}  ->  {exhibit}")
+    print("(this is the data availability statement, generated automatically —")
+    print(" and written to DATA-EXHIBIT-MAP.md in the delivered package)")
+
     banner("Full pipeline run: RESOLVE fixes the path, native R reproduces the table")
     result = run_pipeline(PROJECT, master_script="code/tables.R", skip_docker=True)
 
