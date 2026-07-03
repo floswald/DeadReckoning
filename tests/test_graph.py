@@ -328,3 +328,82 @@ def test_unknown_extension_yields_no_data_refs(tmp_path):
     (tmp_path / "code" / "analysis.sas").write_text('proc import datafile="data/survey.csv";\n')
     graph = build_graph(tmp_path)
     assert graph.data_files == []
+
+
+# ---------------------------------------------------------------------------
+# Command-alias macros (\includetable{x} wrapping \input)
+# ---------------------------------------------------------------------------
+
+
+def test_command_alias_macro_resolves_to_real_exhibit(tmp_path):
+    """
+    \\newcommand{\\includetable}[1]{\\input{tables/#1.tex}} then
+    \\includetable{table1} in the body must resolve to tables/table1.tex —
+    a literal \\input{ scan alone would miss this entirely (common AEA/econ
+    template idiom).
+    """
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "tables" / "table1.tex").write_text("1 & 2 \\\\")
+    (tmp_path / "paper.tex").write_text(
+        r"\newcommand{\includetable}[1]{\input{tables/#1.tex}}"
+        "\n"
+        r"\includetable{table1}"
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    assert any(e.tex_path == Path("tables/table1.tex") for e in graph.exhibits)
+
+
+def test_command_alias_macro_missing_target_flagged(tmp_path):
+    """The alias mechanism must still flag genuinely missing exhibits."""
+    (tmp_path / "paper.tex").write_text(
+        r"\newcommand{\includetable}[1]{\input{tables/#1.tex}}"
+        "\n"
+        r"\includetable{table_nonexistent}"
+    )
+    graph = build_graph(tmp_path)
+    assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_alias_definition_body_not_treated_as_literal_exhibit(tmp_path):
+    """
+    The macro definition's own template text ("tables/#1.tex", containing a
+    literal "#1") must not be scanned as a real \\input{} target — it would
+    never exist on disk and would falsely appear as a missing exhibit.
+    """
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "tables" / "table1.tex").write_text("1 & 2 \\\\")
+    (tmp_path / "paper.tex").write_text(
+        r"\newcommand{\includetable}[1]{\input{tables/#1.tex}}"
+        "\n"
+        r"\includetable{table1}"
+    )
+    graph = build_graph(tmp_path)
+    assert not any("#1" in str(e.tex_path) for e in graph.exhibits)
+
+
+# ---------------------------------------------------------------------------
+# \includestandalone, \includepdf
+# ---------------------------------------------------------------------------
+
+
+def test_includestandalone_detected(tmp_path):
+    (tmp_path / "figures").mkdir()
+    (tmp_path / "figures" / "diagram.tex").write_text(r"\tikz \draw (0,0) -- (1,1);")
+    (tmp_path / "paper.tex").write_text(r"\includestandalone{figures/diagram}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_includepdf_detected(tmp_path):
+    (tmp_path / "appendix.pdf").write_bytes(b"%PDF-1.4 fake")
+    (tmp_path / "paper.tex").write_text(r"\includepdf[pages=-]{appendix.pdf}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    assert any(e.tex_path == Path("appendix.pdf") for e in graph.exhibits)
+
+
+def test_includepdf_missing_flagged(tmp_path):
+    (tmp_path / "paper.tex").write_text(r"\includepdf[pages=-]{missing.pdf}")
+    graph = build_graph(tmp_path)
+    assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)

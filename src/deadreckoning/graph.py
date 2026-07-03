@@ -20,8 +20,12 @@ from .models import (
 # ---------------------------------------------------------------------------
 
 # Patterns that reference external files in LaTeX
+# includestandalone (standalone package, common for TikZ figures): compiles
+#   name.tex separately; resolved like an extension-less includegraphics ref.
+# includepdf (pdfpages): embeds an external PDF, usually with [pages=...].
 _TEX_INCLUDE_RE = re.compile(
-    r"\\(?:includegraphics|input|include|lstinputlisting|verbatiminput|includesvg)"
+    r"\\(?:includegraphics|input|include|lstinputlisting|verbatiminput|includesvg|"
+    r"includestandalone|includepdf)"
     r"\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}",
     re.MULTILINE,
 )
@@ -76,6 +80,36 @@ _DEF_RE = re.compile(
     r"\\def\s*\\([A-Za-z]+)\s*\{([^}]+)\}"
 )
 
+# Command-alias macros: \newcommand{\includetable}[1]{\input{tables/#1.tex}}
+# Common in AEA/economics LaTeX templates — wraps a real inclusion command
+# behind a project-specific name, invisible to a literal \input{ scan.
+# Only the definition *header* is matched here; the body is grabbed via
+# brace-matching (_match_braced_arg) since it commonly contains nested
+# braces (e.g. the \input{...} call itself) that a [^}]+ regex would
+# truncate at the first inner "}".
+_COMMAND_ALIAS_DEF_RE = re.compile(
+    r"\\(?:newcommand|renewcommand|providecommand)\*?\s*\{\\([A-Za-z]+)\}"
+    r"\s*\[(\d+)\]\s*(?:\[[^\]]*\]\s*)?"
+)
+
+
+def _match_braced_arg(text: str, start: int) -> tuple[str, int] | None:
+    """
+    text[start] must be '{'. Returns (inner_content, index_after_closing_brace),
+    correctly handling one or more levels of nested braces.
+    """
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:i], i + 1
+    return None
+
 # \graphicspath{{dir1/}{dir2/}...}
 _GRAPHICSPATH_RE = re.compile(
     r"\\graphicspath\s*\{((?:\{[^}]*\})+)\}"
@@ -83,7 +117,9 @@ _GRAPHICSPATH_RE = re.compile(
 _GRAPHICSPATH_ENTRY_RE = re.compile(r"\{([^}]*)\}")
 
 # Figure extensions LaTeX tries when no suffix given (in preference order)
-_FIGURE_EXTENSIONS = [".pdf", ".eps", ".png", ".jpg", ".jpeg", ".pgf", ".svg"]
+# .tex included for \includestandalone's default 'tex' mode, which resolves
+# against the source file itself rather than a rendered image.
+_FIGURE_EXTENSIONS = [".pdf", ".eps", ".png", ".jpg", ".jpeg", ".pgf", ".svg", ".tex"]
 
 # Commented-out lines — strip before macro/exhibit extraction
 _INLINE_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
@@ -133,6 +169,40 @@ def _collect_tex_macros(tex_files: list[Path]) -> dict[str, str]:
             if _looks_like_path(value):
                 macros[name] = value
     return macros
+
+
+def _collect_command_alias_macros(tex_files: list[Path]) -> dict[str, tuple[int, str]]:
+    """
+    Scan all tex/.sty files for parametrized command-alias macros whose body
+    wraps a real inclusion command, e.g.:
+        \\newcommand{\\includetable}[1]{\\input{tables/#1.tex}}
+    Returns {macro_name: (arg_count, template_ref)} where template_ref is the
+    inclusion command's argument with #1/#2/... placeholders intact
+    (e.g. "tables/#1.tex"). A call site \\includetable{table1} is later
+    resolved by substituting the call's argument(s) into the template.
+    """
+    aliases: dict[str, tuple[int, str]] = {}
+    sty_dirs = {f.parent for f in tex_files}
+    sty_files = [s for d in sty_dirs for s in d.glob("*.sty")]
+    for tex in list(tex_files) + sty_files:
+        try:
+            text = _INLINE_COMMENT_RE.sub("", tex.read_text(errors="replace"))
+        except OSError:
+            continue
+        for m in _COMMAND_ALIAS_DEF_RE.finditer(text):
+            name, argcount_str = m.group(1), m.group(2)
+            body_match = _match_braced_arg(text, m.end())
+            if body_match is None:
+                continue
+            body, _ = body_match
+            inner = _TEX_INCLUDE_RE.search(body)
+            if inner is None:
+                continue
+            template_ref = inner.group(1).strip()
+            if "#" not in template_ref:
+                continue  # static include, not actually parametrized — literal scan already covers it
+            aliases[name] = (int(argcount_str), template_ref)
+    return aliases
 
 
 def _collect_graphicspath(tex_files: list[Path]) -> list[str]:
@@ -215,10 +285,35 @@ def _is_prose_tex(ref: str) -> bool:
     return suffix in _PROSE_EXTENSIONS
 
 
+def _strip_command_alias_definitions(text: str) -> str:
+    """
+    Blank out \\newcommand[N]{...} definition spans (name + body) so their
+    internal template text (e.g. \\input{tables/#1.tex}) isn't picked up by
+    the literal-command scan as a real (nonexistent) exhibit path. Preserves
+    line count by replacing with spaces, not removing text.
+    """
+    spans: list[tuple[int, int]] = []
+    for m in _COMMAND_ALIAS_DEF_RE.finditer(text):
+        body_match = _match_braced_arg(text, m.end())
+        if body_match is None:
+            continue
+        _, end = body_match
+        spans.append((m.start(), end))
+    if not spans:
+        return text
+    chars = list(text)
+    for start, end in spans:
+        for i in range(start, end):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
+
+
 def _extract_exhibits_from_tex(
     tex_path: Path,
     macros: dict[str, str] | None = None,
     graphicspaths: list[tuple[Path, str]] | None = None,
+    alias_macros: dict[str, tuple[int, str]] | None = None,
 ) -> list[Path]:
     """Return exhibit paths referenced via includegraphics/input/import.
 
@@ -226,9 +321,13 @@ def _extract_exhibits_from_tex(
     their contents are already scanned via rglob("*.tex").
     \\import{dir}{file} targets are skipped when they are .tex prose files;
     kept when they are figure/table output files.
+    alias_macros: command-alias macros (see _collect_command_alias_macros)
+    whose calls (e.g. \\includetable{table1}) resolve to a real exhibit path
+    via their template.
     """
     text = tex_path.read_text(errors="replace")
     text = _INLINE_COMMENT_RE.sub("", text)
+    text = _strip_command_alias_definitions(text)
     tex_dir = tex_path.parent
     exhibits: list[Path] = []
 
@@ -257,6 +356,23 @@ def _extract_exhibits_from_tex(
             continue  # structural include — contents scanned via rglob
         resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
         exhibits.append(resolved)
+
+    # Command-alias calls: \includetable{table1} -> template "tables/#1.tex"
+    # resolved to "tables/table1.tex"
+    for name, (argcount, template) in (alias_macros or {}).items():
+        call_re = re.compile(
+            r"\\" + re.escape(name) + r"\b" + r"".join(r"\s*\{([^{}]*)\}" for _ in range(argcount))
+        )
+        for call_match in call_re.finditer(text):
+            ref = template
+            for i, arg_val in enumerate(call_match.groups(), start=1):
+                ref = ref.replace(f"#{i}", arg_val.strip())
+            if macros:
+                ref = _expand_macros(ref, macros)
+            if ref.startswith("\\") or "#" in ref:
+                continue
+            resolved = _resolve_exhibit_path(ref, tex_dir, graphicspaths or [])
+            exhibits.append(resolved)
 
     return exhibits
 
@@ -553,8 +669,9 @@ def build_graph(project_root: Path) -> DependencyGraph:
     # 1. Find .tex files
     tex_files = sorted(project_root.rglob("*.tex"))
 
-    # 2. Collect LaTeX path macros and \graphicspath search dirs
+    # 2. Collect LaTeX path macros, command-alias macros, and \graphicspath search dirs
     macros = _collect_tex_macros(tex_files)
+    alias_macros = _collect_command_alias_macros(tex_files)
     graphicspaths = _collect_graphicspath(tex_files)
 
     # 3. Find all scripts (rglob("*.jl") can match directories like LandUse.jl)
@@ -572,7 +689,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
     raw_exhibit_paths: list[Path] = []
     tex_gaps: list[Gap] = []
     for tex in tex_files:
-        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex, macros, graphicspaths))
+        raw_exhibit_paths.extend(_extract_exhibits_from_tex(tex, macros, graphicspaths, alias_macros))
 
     # Collect the set of resolved output tex files so we don't scan them
     # for inline content — they're generated tables, not prose.
