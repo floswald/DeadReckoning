@@ -332,6 +332,16 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'stargazer\s*\(.*?out\s*=\s*["\']([^"\']+)["\']', re.DOTALL),
         re.compile(r'knitr::kable\s*\(.*?file\s*=\s*["\']([^"\']+)["\']', re.DOTALL),
         re.compile(r'writeLines\s*\([^,]+,\s*["\']([^"\']+)["\']'),
+        # readr::write_lines / write_csv — either two-arg, or single-arg
+        # when piped in via magrittr (%>% write_lines("out.tex")), which is
+        # the common form in tidyverse-style code (data arg supplied by pipe).
+        re.compile(r'(?:readr::)?write_lines\s*\(\s*["\']([^"\']+)["\']'),
+        re.compile(r'(?:readr::)?write_lines\s*\([^,]+,\s*["\']([^"\']+)["\']'),
+        re.compile(r'(?:readr::)?write_csv\s*\(\s*["\']([^"\']+)["\']'),
+        # modelsummary(models, output = "table.tex") — DOTALL handles the
+        # nested-paren model list argument coming before output=.
+        re.compile(r'modelsummary\s*\(.*?output\s*=\s*["\']([^"\']+)["\']', re.DOTALL),
+        re.compile(r'(?:screenreg|texreg|htmlreg)\s*\(.*?file\s*=\s*["\']([^"\']+)["\']', re.DOTALL),
     ],
     ".r": [],  # same as .R — handled below
     ".do": [
@@ -368,6 +378,36 @@ _WRITE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
         re.compile(r'\bsave\s*\(\s*["\']([^"\']+\.mat)["\']'),
     ],
 }
+
+# Generic fallback: a quoted string ending in a known exhibit extension,
+# appearing as an argument to *some* function call (identifier immediately
+# followed by "("). Catches table/figure writers we haven't named
+# explicitly (custom wrappers, less common packages). Scoped to function
+# calls (not bare string literals in macro/list definitions like Stata's
+# `local figs "fig1.pdf fig2.pdf"`) and excludes a denylist of common
+# read/check/no-op functions that take a path but don't write it — without
+# this, `file.exists("fig1.pdf")` or `confirm file "fig1.pdf"`-style reads
+# would be misread as the write call, silently marking real reproducibility
+# gaps as "already solved". Verified against the Mitman ground-truth
+# fixture (43 exhibit_missing_from_disk gaps) to have zero false positives.
+_EXHIBIT_EXTENSIONS = r"tex|pdf|png|eps|jpe?g|svg"
+_READ_ONLY_CALL_NAMES = (
+    r"file\.exists|dir\.exists|exists|require|library|source|message|print|cat|"
+    r"warning|stop|grepl|str_detect|basename|dirname|file\.path|here|readLines|"
+    r"read_lines|normalizePath|unlink|confirm|capture|display|di|assert|"
+    r"os\.path\.exists|isfile|isdir|"
+    # control-flow keywords that look like calls (identifier + paren) to this
+    # naive regex — without excluding these, `if (file.exists("x.pdf")) ...`
+    # lets the outer `if (` "borrow" credit for the inner read call.
+    r"if|while|for|function|return|switch|repeat"
+)
+_GENERIC_EXHIBIT_WRITE_RE = re.compile(
+    r'\b(?!(?:' + _READ_ONLY_CALL_NAMES + r')\s*\()[A-Za-z_][\w.:]*\s*\('
+    r'.*?["\']([^"\']+\.(?:' + _EXHIBIT_EXTENSIONS + r'))["\']',
+    re.IGNORECASE,
+)
+for _patterns in _WRITE_PATTERNS.values():
+    _patterns.append(_GENERIC_EXHIBIT_WRITE_RE)
 _WRITE_PATTERNS[".r"] = _WRITE_PATTERNS[".R"]
 
 
@@ -427,7 +467,8 @@ def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
 # ---------------------------------------------------------------------------
 
 _R_READ_RE = re.compile(
-    r'(?:read\.csv|read_csv|read\.dta|haven::read_dta|readRDS|load)\s*\(\s*["\']([^"\']+)["\']',
+    r'(?:read\.csv|read_csv|read\.dta|haven::read_dta|readRDS|load|fread|read_excel|read_sf|st_read)'
+    r'\s*\(\s*["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 _STATA_READ_RE = re.compile(

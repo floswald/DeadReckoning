@@ -193,6 +193,85 @@ def test_external_dropbox_path_detected():
     assert "dropbox" in kinds
 
 
+def test_piped_write_lines_detected_as_exhibit_source(tmp_path):
+    """
+    readr::write_lines("out.tex") at the end of a magrittr pipe (data arg
+    supplied by %>%, not passed explicitly) must be recognized as the
+    script that produces out.tex -- not flagged as exhibit_missing_from_disk.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "code" / "tables.R").write_text(
+        'x <- kableExtra::kbl(data.frame(a=1)) %>% readr::write_lines("tables/out.tex")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\input{tables/out.tex}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("tables/out.tex"))
+    assert exhibit.source is not None
+    assert exhibit.source.script.name == "tables.R"
+
+
+def test_modelsummary_detected_via_generic_extension_fallback(tmp_path):
+    """
+    modelsummary() (and any other unlisted table/figure writer) must be
+    caught by the generic *.tex/*.pdf/... fallback, not just the named
+    ggsave/write_lines/stargazer patterns.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "code" / "tables.R").write_text(
+        'modelsummary(list(m1, m2), output = "tables/reg1.tex")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\input{tables/reg1.tex}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("tables/reg1.tex"))
+    assert exhibit.source is not None
+
+
+def test_custom_wrapper_caught_by_generic_extension_fallback(tmp_path):
+    """
+    An unnamed custom table-writing wrapper (not ggsave/stargazer/etc) must
+    still be caught via the generic extension fallback, since it's a real
+    function call producing a recognized exhibit extension.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "code" / "tables.R").write_text(
+        'my_custom_table_writer(results, "tables/custom.tex")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\input{tables/custom.tex}")
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_file_exists_check_not_treated_as_write_call(tmp_path):
+    """
+    file.exists("fig1.pdf") is a read/check, not a write — must not be
+    mistaken for the script that produces fig1.pdf (would silently hide a
+    real reproducibility gap).
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "check.R").write_text(
+        'if (!file.exists("figures/fig1.pdf")) stop("missing")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{figures/fig1.pdf}")
+    graph = build_graph(tmp_path)
+    assert any(g.kind == GapKind.exhibit_missing_from_disk for g in graph.gaps)
+
+
+def test_r_fread_detected(tmp_path):
+    """data.table::fread(...) must be recognized, not just base-R read.csv."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "tables.R").write_text(
+        'library(data.table)\nf <- fread("data/tenders.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/tenders.csv" in paths
+
+
 def test_stata_import_delimited_detected(tmp_path):
     """import delimited "path.csv" in a .do file must appear as a data file."""
     (tmp_path / "code").mkdir()
