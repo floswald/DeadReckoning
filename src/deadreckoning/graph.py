@@ -423,16 +423,41 @@ def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
 
 
 # ---------------------------------------------------------------------------
-# Data file reference extraction (R only for Phase 0)
+# Data file reference extraction (R, Stata, Python, Julia, MATLAB)
 # ---------------------------------------------------------------------------
 
 _R_READ_RE = re.compile(
     r'(?:read\.csv|read_csv|read\.dta|haven::read_dta|readRDS|load)\s*\(\s*["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
+_STATA_READ_RE = re.compile(
+    r'\b(?:use|import\s+delimited|insheet)\s+(?:using\s+)?["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+_PYTHON_READ_RE = re.compile(
+    r'(?:read_csv|read_excel|read_stata|read_parquet|read_pickle|read_json|'
+    r'loadtxt|genfromtxt)\s*\(\s*["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+_JULIA_READ_RE = re.compile(
+    r'(?:CSV\.read|CSV\.File|readdlm|JLD2\.load|npzread)\s*\(\s*["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+_MATLAB_READ_RE = re.compile(
+    r'(?:readtable|csvread|xlsread|readmatrix|load)\s*\(\s*["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
 _ABSOLUTE_PATH_RE = re.compile(
     r'["\'](?:/|[A-Za-z]:\\\\|~/)[^"\']{5,}["\']'
 )
+
+_READ_RE_BY_SUFFIX: dict[str, re.Pattern] = {
+    ".r": _R_READ_RE,
+    ".do": _STATA_READ_RE,
+    ".py": _PYTHON_READ_RE,
+    ".jl": _JULIA_READ_RE,
+    ".m": _MATLAB_READ_RE,
+}
 
 
 def _extract_data_refs(script: Path, project_root: Path) -> list[DataFile]:
@@ -441,8 +466,11 @@ def _extract_data_refs(script: Path, project_root: Path) -> list[DataFile]:
     except OSError:
         return []
 
+    read_re = _READ_RE_BY_SUFFIX.get(script.suffix.lower())
+    if read_re is None:
+        return []
     results: list[DataFile] = []
-    for m in _R_READ_RE.finditer(text):
+    for m in read_re.finditer(text):
         raw = m.group(1).strip()
         p = Path(raw)
         is_external = p.is_absolute() or raw.startswith("~/")

@@ -142,6 +142,7 @@ class ScanResult(BaseModel):
     external_paths: list[ExternalPath] = Field(default_factory=list)
     secret_files: list[SecretFile] = Field(default_factory=list)
     download_calls: list[DownloadCall] = Field(default_factory=list)
+    scripts: list[str] = Field(default_factory=list)  # relative paths, all languages
 
     @property
     def has_external_paths(self) -> bool:
@@ -497,6 +498,16 @@ def scan_stata_scripts(project_root: Path) -> ScanResult:
 # ---------------------------------------------------------------------------
 
 
+_SCRIPT_GLOBS = ("*.R", "*.r", "*.py", "*.jl", "*.do", "*.m")
+
+
+def _find_all_scripts(project_root: Path) -> list[str]:
+    paths: set[Path] = set()
+    for pattern in _SCRIPT_GLOBS:
+        paths.update(project_root.rglob(pattern))
+    return sorted(str(p.relative_to(project_root)) for p in paths)
+
+
 def scan_scripts(project_root: Path) -> ScanResult:
     """
     Scan all scripts across supported languages (R, Python, Julia, Stata).
@@ -517,4 +528,5 @@ def scan_scripts(project_root: Path) -> ScanResult:
         external_paths=all_paths,
         secret_files=_scan_secrets(project_root),
         download_calls=all_downloads,
+        scripts=_find_all_scripts(project_root),
     )

@@ -191,3 +191,61 @@ def test_external_dropbox_path_detected():
     assert len(external) > 0, "No external data files detected"
     kinds = {df.external_kind for df in external}
     assert "dropbox" in kinds
+
+
+def test_stata_import_delimited_detected(tmp_path):
+    """import delimited "path.csv" in a .do file must appear as a data file."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.do").write_text(
+        'import delimited "data/survey.csv", clear\n'
+        'import delimited using "data/secret_addon.csv", clear\n'
+    )
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/survey.csv" in paths
+    assert "data/secret_addon.csv" in paths
+
+
+def test_stata_use_detected(tmp_path):
+    """use "path.dta" in a .do file must appear as a data file."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.do").write_text('use "data/panel.dta", clear\n')
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/panel.dta" in paths
+
+
+def test_python_read_csv_detected(tmp_path):
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.py").write_text(
+        'import pandas as pd\ndf = pd.read_csv("data/survey.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/survey.csv" in paths
+
+
+def test_julia_csv_read_detected(tmp_path):
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.jl").write_text(
+        'using CSV\ndf = CSV.read("data/survey.csv", DataFrame)\n'
+    )
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/survey.csv" in paths
+
+
+def test_matlab_readtable_detected(tmp_path):
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.m").write_text('t = readtable("data/survey.csv");\n')
+    graph = build_graph(tmp_path)
+    paths = {str(df.path) for df in graph.data_files}
+    assert "data/survey.csv" in paths
+
+
+def test_unknown_extension_yields_no_data_refs(tmp_path):
+    """Scripts with unmapped extensions must not silently reuse R's regex."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.sas").write_text('proc import datafile="data/survey.csv";\n')
+    graph = build_graph(tmp_path)
+    assert graph.data_files == []
