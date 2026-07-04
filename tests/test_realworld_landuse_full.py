@@ -56,18 +56,16 @@ def _root() -> Path:
 
 
 def test_landuse_confidentiality_scan_runs():
-    """check_restricted runs without error. This package triggers a false positive
-    on data/IGN-chef-lieux/ign_metropole_adminexpress_chefs_lieux_z.prj because
-    'admin' matches the restricted-filename pattern — but the file is public IGN
-    administrative boundary data, not restricted microdata.
-    This is a known limitation of the filename-only scanner."""
+    """check_restricted runs without error and does not false-positive on
+    data/IGN-chef-lieux/ign_metropole_adminexpress_chefs_lieux_z.prj — public
+    IGN administrative boundary data, not restricted microdata. (Previously a
+    known false positive: bare 'admin' matched inside 'adminexpress'; the
+    pattern now requires an adjacent data/records marker.)"""
     status = check_restricted(_root())
-    if status.is_restricted:
-        # Accept the known IGN false positive; fail on anything unexpected.
-        assert "adminexpress" in status.reason.lower() or "ign" in str(status.trigger_path).lower(), (
-            f"Unexpected restricted-data trigger: {status.reason}\n"
-            f"  path: {status.trigger_path}"
-        )
+    assert not status.is_restricted, (
+        f"Unexpected restricted-data trigger: {status.reason}\n"
+        f"  path: {status.trigger_path}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -10,8 +10,18 @@ from .models import RestrictedStatus
 # Filename fragments that indicate restricted data
 _RESTRICTED_NAME_PATTERNS: list[str] = [
     "restricted", "confidential", "nda", "hipaa", "pii",
-    "microdata", "admin", "census", "irs", "hmda",
+    "microdata", "census", "irs", "hmda",
     "nlsy", "psid", "sipp", "acs_pums",
+]
+
+# "admin" alone is too broad a substring — it also matches public reference
+# datasets whose names merely contain it (e.g. IGN's AdminExpress French
+# administrative-boundary files: ign_metropole_adminexpress_chefs_lieux_z.prj).
+# Only treat it as a restricted-data signal when adjacent to an actual
+# data/records marker, which is how real admin-microdata files are named
+# (admin_data.dta, SSA_admin_records.csv, administrative_microdata.dta).
+_RESTRICTED_CONTEXTUAL_PATTERNS: list[str] = [
+    r"admin(?:istrative)?[_-]?(?:data|records?|microdata|panel)",
 ]
 
 # Filenames that suggest a DUA or ethics document is present
@@ -21,7 +31,8 @@ _DUA_NAME_PATTERNS: list[str] = [
 ]
 
 _RESTRICTED_RE = re.compile(
-    "|".join(re.escape(p) for p in _RESTRICTED_NAME_PATTERNS),
+    "|".join(re.escape(p) for p in _RESTRICTED_NAME_PATTERNS)
+    + "|" + "|".join(_RESTRICTED_CONTEXTUAL_PATTERNS),
     re.IGNORECASE,
 )
 _DUA_RE = re.compile(
