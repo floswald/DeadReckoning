@@ -183,6 +183,7 @@ class StataRunResult:
     log_path: Path | None
     log_has_error: bool  # True if r(\d+); found in log
     error_code: int | None
+    log_snippet: str | None  # lines around the r(N); error, for LLM diagnosis
     stdout: str
     stderr: str
 
@@ -217,18 +218,24 @@ def run_stata(
 
     log_has_error = False
     error_code = None
+    log_snippet = None
     if log_path.exists():
         log_text = log_path.read_text(errors="replace")
         m = _R_CODE_RE.search(log_text)
         if m:
             log_has_error = True
             error_code = int(m.group(1))
+            lines = log_text.splitlines()
+            err_line = log_text[:m.start()].count("\n")
+            start = max(0, err_line - 8)
+            log_snippet = "\n".join(lines[start:err_line + 1])
 
     return StataRunResult(
         returncode=result.returncode,
         log_path=log_path,
         log_has_error=log_has_error,
         error_code=error_code,
+        log_snippet=log_snippet,
         stdout=result.stdout,
         stderr=result.stderr,
     )

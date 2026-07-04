@@ -101,9 +101,11 @@ def test_r_dockerfile_workdir():
     assert "WORKDIR /project" in df
 
 
-def test_r_dockerfile_platform():
+def test_r_dockerfile_no_forced_platform():
+    """R is open-source/multi-arch — must not force amd64 (that's QEMU
+    emulation on Apple Silicon for no reason; only Stata/MATLAB need it)."""
     df = generate_dockerfile(_r_spec())
-    assert "linux/amd64" in df
+    assert "--platform" not in df
 
 
 def test_r_dockerfile_no_packages():

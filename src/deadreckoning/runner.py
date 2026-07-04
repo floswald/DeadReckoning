@@ -140,6 +140,8 @@ def _run_stata(project_root: Path, master_script: str) -> RunResult:
     stderr = stata_result.stderr
     if stata_result.log_has_error:
         stderr += f"\nStata error r({stata_result.error_code}) in log: {stata_result.log_path}"
+        if stata_result.log_snippet:
+            stderr += f"\n\nLog excerpt:\n{stata_result.log_snippet}"
     return RunResult(
         returncode=0 if stata_result.success else 1,
         stdout=stata_result.stdout,

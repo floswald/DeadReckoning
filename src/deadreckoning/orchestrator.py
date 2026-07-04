@@ -20,7 +20,7 @@ from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, RestrictedStatus
+from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
 from .provenance import render_data_exhibit_map, trace_exhibit_inputs, write_data_exhibit_map
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
@@ -107,6 +107,20 @@ def run_pipeline(
         master_script = _detect_master_script(project_root)
 
     # Step 1: confidentiality gate — check BEFORE making working copy (spec §4.1)
+    # The author's own answer takes priority over the filename heuristic —
+    # ask before opening anything means "believe them," not "double-check first."
+    if intake is not None and intake.restricted_data:
+        return PipelineResult(
+            project_root=project_root,
+            working_copy=project_root,  # sentinel — no copy was made
+            restricted=RestrictedStatus(
+                is_restricted=True,
+                reason="Author confirmed restricted/confidential data during intake questionnaire",
+            ),
+            intake=intake,
+            error="Restricted data detected: author confirmed via intake questionnaire",
+        )
+
     # check_restricted reads filenames only, no file contents opened.
     restricted = check_restricted(project_root)
     if restricted.is_restricted:
@@ -115,6 +129,7 @@ def run_pipeline(
             project_root=project_root,
             working_copy=project_root,  # sentinel — no copy was made
             restricted=restricted,
+            intake=intake,
             error=f"Restricted data detected: {restricted.reason}",
         )
 
@@ -152,6 +167,16 @@ def run_pipeline(
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
 
+    # RESOLVE's here::here() adoption (R) introduces a new dependency on the
+    # `here` package — env_spec was captured in Step 3, before this rewrite,
+    # so it never sees it unless we add it back here.
+    if (
+        result.resolve.here_adoptions > 0
+        and result.env_spec.language.upper() == "R"
+        and not any(p.name == "here" for p in result.env_spec.packages)
+    ):
+        result.env_spec.packages.append(PackageSpec(name="here", pin_method=PinMethod.unknown))
+
     # Step 5b: ASK — surface gaps that require author input
     result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
         working_copy, result.graph, result.env_spec, result.scan, intake=intake
@@ -177,6 +202,7 @@ def run_pipeline(
             result.graph,
             result.env_spec,
             master_script=master_script,
+            initial_stderr=result.native_run.stderr,
         )
         result.llm_fix_loop = llm_result
         append_fix_report(working_copy, llm_result)

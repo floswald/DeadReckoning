@@ -6,7 +6,7 @@ import delimited "data/region_boost.csv", clear
 tempfile addon
 save "`addon'"
 
-import delimited "data/survey.csv", clear
+import delimited "data/survey_data.csv", clear
 merge 1:1 id using "`addon'", nogenerate
 replace region_boost = 1 if missing(region_boost)
 replace wage = wage * region_boost

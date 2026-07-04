@@ -83,6 +83,12 @@ _SYSTEM_DEPS: dict[str, list[str]] = {
     "units":      ["libudunits2-dev"],
     "sf":         ["libudunits2-dev", "libgdal-dev", "libgeos-dev", "libproj-dev"],
     "terra":      ["libudunits2-dev", "libgdal-dev", "libgeos-dev", "libproj-dev"],
+    # kableExtra pulls in systemfonts/textshaping/svglite transitively —
+    # none of those are declared directly, so the C-library needs must be
+    # keyed on kableExtra itself (same pattern as sf/terra above).
+    "kableExtra": ["libfontconfig1-dev", "libfreetype6-dev", "libharfbuzz-dev",
+                   "libfribidi-dev", "libpng-dev", "libtiff5-dev", "libjpeg-dev",
+                   "libuv1-dev", "libxml2-dev"],
 }
 
 
@@ -124,9 +130,19 @@ _DEFAULT_R_VERSION = "4.4.0"
 _DEFAULT_PYTHON_VERSION = "3.11"
 _DEFAULT_JULIA_VERSION = "1.10"
 
-# Platform: proprietary software must be amd64 (license servers + binaries)
+# Platform: proprietary software must be amd64 (license servers + binaries).
+# Open-source languages (R/Python/Julia) publish multi-arch images — forcing
+# amd64 there just buys pointless QEMU emulation on Apple Silicon. Let Docker
+# resolve the host's native platform instead (omit --platform entirely).
 _PROPRIETARY_PLATFORM = "linux/amd64"
-_DEFAULT_PLATFORM = "linux/amd64"  # safe default; arm64 fine for open-source
+_DEFAULT_PLATFORM = "linux/amd64"  # kept for callers that pin explicitly
+
+
+def _platform_for_language(language: str) -> Optional[str]:
+    """None means: don't pass --platform at all, let Docker use the host's."""
+    if language.upper() in ("STATA", "MATLAB"):
+        return _PROPRIETARY_PLATFORM
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +162,7 @@ def _r_dockerfile(env_spec: EnvSpec) -> str:
     base_image = _select_r_base_image(pkg_names, version)
     system_deps = _system_deps_for_packages(pkg_names, base_image)
 
-    lines = [f"FROM --platform={_DEFAULT_PLATFORM} {base_image}", ""]
+    lines = [f"FROM {base_image}", ""]
 
     if system_deps:
         apt_list = " ".join(system_deps)
@@ -176,7 +192,7 @@ def _python_dockerfile(env_spec: EnvSpec) -> str:
     ]
 
     lines = [
-        f"FROM --platform={_DEFAULT_PLATFORM} {_PYTHON_BASE.format(version=version)}",
+        f"FROM {_PYTHON_BASE.format(version=version)}",
         "",
         "WORKDIR /project",
     ]
@@ -198,7 +214,7 @@ def _julia_dockerfile(env_spec: EnvSpec) -> str:
     pkg_names = [p.name for p in env_spec.packages]
 
     lines = [
-        f"FROM --platform={_DEFAULT_PLATFORM} {_JULIA_BASE.format(version=version)}",
+        f"FROM {_JULIA_BASE.format(version=version)}",
         "",
         "WORKDIR /project",
     ]
@@ -349,11 +365,15 @@ def build_image(
     project_root: Path,
     dockerfile_text: str,
     tag: str,
-    platform: str = _DEFAULT_PLATFORM,
+    platform: Optional[str] = None,
 ) -> BuildResult:
     write_dockerfile(project_root, dockerfile_text)
+    cmd = ["docker", "build"]
+    if platform:
+        cmd.append(f"--platform={platform}")
+    cmd += ["-t", tag, "."]
     result = subprocess.run(
-        ["docker", "build", f"--platform={platform}", "-t", tag, "."],
+        cmd,
         cwd=project_root,
         capture_output=True,
         text=True,
@@ -384,7 +404,7 @@ def run_in_container(
     graph: DependencyGraph,
     master_script: Optional[str] = None,
     env_spec: Optional[EnvSpec] = None,
-    platform: str = _DEFAULT_PLATFORM,
+    platform: Optional[str] = None,
     stata_license: Optional[Path] = None,
 ) -> ContainerRunResult:
     """
@@ -416,7 +436,7 @@ def _build_run_command(
     project_root: Path,
     master_script: Optional[str],
     env_spec: Optional[EnvSpec],
-    platform: str,
+    platform: Optional[str],
     stata_license: Optional[Path] = None,
 ) -> list[str]:
     lang = (env_spec.language.upper() if env_spec else "R")
@@ -424,9 +444,10 @@ def _build_run_command(
         master_script = _default_master_script(lang, project_root)
 
     shell_cmd = _shell_command(lang, master_script)
-    cmd = [
-        "docker", "run", "--rm",
-        f"--platform={platform}",
+    cmd = ["docker", "run", "--rm"]
+    if platform:
+        cmd.append(f"--platform={platform}")
+    cmd += [
         "-v", f"{project_root}:/project",
     ]
     if lang == "STATA" and stata_license is not None:
@@ -599,7 +620,7 @@ def run_docker_fix_loop(
     env_spec: Optional[EnvSpec] = None,
     image_tag: str = "deadreckoning:latest",
     max_iterations: int = 5,
-    platform: str = _DEFAULT_PLATFORM,
+    platform: Optional[str] = None,
     master_script: Optional[str] = None,
     stata_license: Optional[Path] = None,
 ) -> DockerFixResult:
@@ -608,12 +629,17 @@ def run_docker_fix_loop(
 
     Build failures: missing packages detected deterministically (R/Python/Julia).
     Run failures: LLM fix loop applied to working copy, then rebuild.
+
+    platform: pass explicitly to pin one; otherwise resolved from language
+    (amd64 for Stata/MATLAB, host-native for R/Python/Julia).
     """
     if env_spec is None:
         from .capture import capture_env
         env_spec = capture_env(project_root)
 
     language = env_spec.language if env_spec else "R"
+    if platform is None:
+        platform = _platform_for_language(language)
     dockerfile_text = generate_dockerfile(env_spec)
     dockerignore_text = generate_dockerignore()
     write_dockerignore(project_root, dockerignore_text)
@@ -688,13 +714,13 @@ def append_docker_report(
     run: Optional[ContainerRunResult],
     fix_result: Optional[DockerFixResult],
     image_tag: str,
-    platform: str,
+    platform: Optional[str],
 ) -> None:
     """Append Docker pipeline summary to AGENT_REPORT.md."""
     report = project_root / "AGENT_REPORT.md"
     lines = [
         "\n## Docker pipeline\n",
-        f"Image: `{image_tag}`  | Platform: `{platform}`  "
+        f"Image: `{image_tag}`  | Platform: `{platform or 'host default'}`  "
         f"| Build: {'✓' if build.success else '✗'}  "
         f"| Run: {'✓' if (run and run.run.success) else '✗'}\n",
     ]

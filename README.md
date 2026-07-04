@@ -1,18 +1,64 @@
-# DeadReckoning — Design Spec
+# DeadReckoning
 
 [![CI](https://github.com/floswald/DeadReckoning/actions/workflows/ci.yml/badge.svg)](https://github.com/floswald/DeadReckoning/actions/workflows/ci.yml)
 
-
 > **Dead reckoning** *(navigation)*: the process of estimating one's current position based on a previously known position, then accounting for speed, direction, and elapsed time — without access to external reference points such as GPS. Accurate fixes require cross-referencing multiple imperfect signals. The further you have drifted from the last known position, the harder the reckoning.
 
-**Status:** draft v0.1  
-**Audience:** economics researchers with little or no experience making their work computationally reproducible  
-**Goal:** help an author whose research project is not yet reproducible get it into a state where all outputs can be regenerated from scratch — and then preserve that state in a Docker container for submission
-
+**What it's for:** you're an economics (or other empirical) researcher, your paper just got accepted, and the journal wants a replication package. You try to rerun everything and it doesn't work anymore — moved files, changed package versions, a figure nobody remembers how to regenerate. DeadReckoning reads your project, asks you the handful of things it genuinely can't figure out on its own, fixes what it can (including using an LLM to diagnose and repair a broken run), and hands you back a working replication package plus a Docker setup for submission.
 
 ![](picture.png)
 
+---
 
+## Installation
+
+Requires Python 3.11+ and `git`. Not yet on PyPI — install from source:
+
+```bash
+git clone https://github.com/floswald/DeadReckoning.git
+cd DeadReckoning
+pip install -e .
+```
+
+(A virtualenv or conda environment is recommended, but not required.)
+
+**Optional, depending on what your project needs:**
+- `ANTHROPIC_API_KEY` set in your environment — enables the automated fix loop (an LLM diagnoses and repairs a run that fails natively; without it, that step is silently skipped and you're on your own for that failure).
+- Docker Desktop (or another Docker daemon) — only needed for the containerization steps at the end of the pipeline; everything up to a working native replication package runs without it.
+- Stata / MATLAB installed locally, if your project uses them — DeadReckoning detects and drives them, but can't install them for you (proprietary, license-locked).
+
+## Quick start
+
+```bash
+deadreckoning run /path/to/your/project
+```
+
+This is the main command:
+
+1. Asks you a short intake questionnaire first — including, up front, whether any of your data is confidential or restricted (see [§4](#4-confidentiality-and-restricted-data) for why that's asked before anything else happens).
+2. Makes a full copy of your project to work in — **your original files are never touched.**
+3. Reads your paper's `.tex` source, traces every figure/table back to the script and data that produce it, and flags anything that doesn't trace cleanly.
+4. Tries to actually run your code natively, fixes what it can (including handing a real failure to an LLM to diagnose, if `ANTHROPIC_API_KEY` is set), and reports what worked.
+5. Optionally builds and validates a Docker image on top, once the native run passes.
+
+Useful flags:
+- `--skip-docker` / `--no-skip-docker` — Docker is skipped by default; enable it once your native run passes.
+- `--answers-file answers.json` — supply the intake questionnaire's answers non-interactively (for scripted/CI use).
+- `--skip-intake` — bypass the questionnaire entirely; relies only on filename-based restricted-data detection.
+- `--json` — machine-readable output.
+
+Other commands, for a quicker look without running anything:
+```bash
+deadreckoning check /path/to/your/project   # GRAPH + CAPTURE only — no execution
+deadreckoning graph /path/to/your/project   # dependency graph + gap report
+deadreckoning detect-stata                  # is Stata installed and on PATH?
+```
+
+**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has two runnable, narrated walkthroughs — a rigged toy paper and a slice of a real published package — that show every pipeline step live, including the LLM catching and fixing a real broken path. See [`demo/README.md`](demo/README.md).
+
+---
+
+The rest of this document is the full design spec: the reasoning behind each step, the confidentiality protocol, and the problem areas that make this hard. Read on if you want to understand how it works, extend it, or check what guarantees it actually makes — skip it if you just want to run the tool.
 
 ---
 
@@ -44,12 +90,6 @@ The naive version of this tool — "generate a Dockerfile from a project" — so
 | `containerit` (Nüst) | Introspects an R session → Dockerfile | R-only; needs a live, clean session; no multi-language |
 | rocker + Posit Package Manager | Dated CRAN snapshots solve R repro | Only works *if* the researcher already used it; most don't |
 | `dataeditors/stata` images | BYO-license Stata in Docker | A base image, not a tool that adapts to a messy project |
-
-**The three things this tool must do well (or it shouldn't be built):**
-
-1. Handle the economics **multi-language zoo** (R, Stata, Julia, Python, MATLAB, often mixed in one package).
-2. Work even when **no lockfile exists**, by reconstructing the environment through other means.
-3. Run an **automated build → run → fix loop** that repeats until the package works.
 
 ---
 
