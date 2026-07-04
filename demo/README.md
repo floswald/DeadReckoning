@@ -1,6 +1,6 @@
 # DeadReckoning presentation demo
 
-Two segments, ~5 minutes total. Both drive the real pipeline
+Three segments, ~7 minutes total. All drive the real pipeline
 (`run_pipeline` / `deadreckoning run`), not hand-built objects.
 
 ## 1. Toy package — `run_demo.py`
@@ -87,10 +87,46 @@ in seconds.
 
 Needs `ANTHROPIC_API_KEY` for the LLM fix-loop act, same as segment 1.
 
+## 3. Real package — `run_demo_landuse.py`
+
+One-script, one-data-file slice of a real, published, own-authored
+replication package: Oswald, *Land Use, Structural Change and Urban
+Expansion* (REStud), github.com/floswald/LandUse-REStud, data on Zenodo.
+The full package is Julia + R + Stata across many real-world data
+sources (GHS, Copernicus CLC, INSEE, Schauberger yields, Shlomo Angel,
+IGN, CASD-cleared secure-enclave aggregates) — this slice is scoped to
+one self-contained Stata script, `code/stata/figure1.do`, and its one
+real data input, `FRA_base.dta` (French land-use/employment shares,
+1806-2018), producing the paper's actual Figure 1.
+
+One rigged problem, same "deadline-crunch slip" pattern as segment 2:
+the data file was renamed on disk (`FRA_base.dta` -> `FRA_base_v2.dta`)
+without the script being updated. Unlike segment 2, there's no
+hardcoded/external path here — the script's `use "data/raw/FRA_base.dta"`
+is a plain project-relative path, so SCAN/RESOLVE see nothing to flag or
+rewrite; the native run just 404s.
+
+```bash
+python3 demo/run_demo_landuse.py           # full step-by-step narration
+python3 demo/run_demo_landuse.py --terse   # one line per step
+```
+
+Shows: DETECT returning a clean, not-restricted pass (CASD/not-shared
+data is excluded from this slice — contrast with what a full-package
+scan would flag), then a full run — native Stata execution fails on the
+renamed file, and **this is where Claude (live API call) does the actual
+reasoning**: handed the failing stderr and a directory listing, it spots
+the rename and proposes a `rewrite_path` fix, which gets applied and
+re-run natively to reproduce the real Figure 1 from real French land-use
+data. No Docker in this segment — Stata-only, one script, seconds to run.
+
+Needs `ANTHROPIC_API_KEY` for the LLM fix-loop act, same as segments 1-2.
+Needs a local Stata install for the native RUN step.
+
 ## Notes
 
-- Neither script touches `demo/toy_paper/` or `demo/bus_locations_real/`
-  directly — the pipeline always works on a temp copy, printed as
-  "Working copy" in the output.
-- Both scripts write `DATA-EXHIBIT-MAP.md` into that working copy (the
-  generated data availability statement).
+- None of the three scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
+  or `demo/landuse_real/` directly — the pipeline always works on a temp
+  copy, printed as "Working copy" in the output.
+- All three scripts write `DATA-EXHIBIT-MAP.md` into that working copy
+  (the generated data availability statement).
