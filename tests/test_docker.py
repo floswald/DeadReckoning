@@ -19,6 +19,7 @@ from deadreckoning.docker import (
     _add_julia_package_to_dockerfile,
     _add_python_package_to_dockerfile,
     _add_r_package_to_dockerfile,
+    _build_run_command,
     _parse_missing_julia_package,
     _parse_missing_python_package,
     _parse_missing_r_package,
@@ -100,9 +101,11 @@ def test_r_dockerfile_workdir():
     assert "WORKDIR /project" in df
 
 
-def test_r_dockerfile_platform():
+def test_r_dockerfile_no_forced_platform():
+    """R is open-source/multi-arch — must not force amd64 (that's QEMU
+    emulation on Apple Silicon for no reason; only Stata/MATLAB need it)."""
     df = generate_dockerfile(_r_spec())
-    assert "linux/amd64" in df
+    assert "--platform" not in df
 
 
 def test_r_dockerfile_no_packages():
@@ -178,6 +181,42 @@ def test_matlab_dockerfile_is_unsupported():
     assert "COPY" not in df
 
 
+def test_stata_dockerfile_with_image_uses_from():
+    spec = EnvSpec(language="Stata", confidence=0.4, stata_image="dataeditors/stata18_5-mp:2025-02-26")
+    df = generate_dockerfile(spec)
+    assert "FROM" in df
+    assert "dataeditors/stata18_5-mp:2025-02-26" in df
+    assert "COPY" not in df
+    assert "ENTRYPOINT" in df  # overrides upstream stata-mp entrypoint so bash -c works
+
+
+def test_stata_run_command_mounts_license_readonly():
+    spec = EnvSpec(language="Stata", confidence=0.4, stata_image="dataeditors/stata18_5-mp:2025-02-26")
+    cmd = _build_run_command(
+        "dataeditors/stata18_5-mp:2025-02-26",
+        Path("/project"),
+        "code/run.do",
+        spec,
+        "linux/amd64",
+        stata_license=Path("/Users/x/licenses/stata.lic"),
+    )
+    joined = " ".join(cmd)
+    assert "/Users/x/licenses/stata.lic:/usr/local/stata/stata.lic:ro" in joined
+
+
+def test_non_stata_run_command_ignores_license_arg():
+    spec = EnvSpec(language="R", confidence=0.9)
+    cmd = _build_run_command(
+        "rocker/r-ver:4.4.0",
+        Path("/project"),
+        "code/run.R",
+        spec,
+        "linux/amd64",
+        stata_license=Path("/Users/x/licenses/stata.lic"),
+    )
+    assert "stata.lic" not in " ".join(cmd)
+
+
 # ---------------------------------------------------------------------------
 # .dockerignore generation
 # ---------------------------------------------------------------------------
@@ -226,7 +265,7 @@ def test_shell_command_matlab():
 
 
 def test_shell_command_stata():
-    assert "stata" in _shell_command("STATA", "code/run.do")
+    assert _shell_command("STATA", "code/run.do") == "stata-mp -b do code/run.do"
 
 
 # ---------------------------------------------------------------------------

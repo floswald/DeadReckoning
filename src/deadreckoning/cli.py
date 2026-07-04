@@ -47,7 +47,7 @@ def _to_jsonable(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_to_jsonable(v) for v in obj]
     if isinstance(obj, dict):
-        return {k: _to_jsonable(v) for k, v in obj.items()}
+        return {(str(k) if isinstance(k, Path) else k): _to_jsonable(v) for k, v in obj.items()}
     # pydantic BaseModel
     try:
         return _to_jsonable(obj.model_dump())
@@ -174,6 +174,34 @@ def _cmd_check(args: argparse.Namespace) -> int:
 # sub-command: run
 # ---------------------------------------------------------------------------
 
+def _collect_intake(args: argparse.Namespace):
+    """
+    §4.1: ask before opening anything. Returns IntakeResult or None.
+
+    --skip-intake       : explicit opt-out; relies solely on filename-based detection (§4.2)
+    --answers-file PATH : JSON dict of pre-supplied answers (CI / scripted use)
+    otherwise           : interactive questionnaire if stdin is a TTY;
+                          if not a TTY and no answers file, skip with a warning
+                          rather than hang waiting on stdin.
+    """
+    from .intake import questionnaire
+
+    if args.skip_intake:
+        return None
+
+    if args.answers_file:
+        answers = json.loads(Path(args.answers_file).read_text())
+        return questionnaire(answers=answers)
+
+    if sys.stdin.isatty():
+        return questionnaire()
+
+    if not args.json:
+        print(f"{_WARN} no TTY and no --answers-file — skipping intake questionnaire "
+              "(relying on filename-based restricted-data detection only)")
+    return None
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     from .orchestrator import run_pipeline
 
@@ -181,6 +209,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if not project.exists():
         print(f"{_FAIL} path not found: {project}", file=sys.stderr)
         return 1
+
+    intake = _collect_intake(args)
 
     if not args.json:
         print(_bold(f"\nRunning pipeline — {project.name}"))
@@ -190,6 +220,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         project,
         master_script=args.master_script or None,
         skip_docker=args.skip_docker,
+        stata_image=args.stata_image or None,
+        stata_license=Path(args.stata_license) if args.stata_license else None,
+        intake=intake,
     )
 
     if args.json:
@@ -317,6 +350,17 @@ def main() -> None:
                        help="Override auto-detected master script (e.g. code/run.R)")
     p_run.add_argument("--skip-docker", action=argparse.BooleanOptionalAction, default=True,
                        help="Skip Docker steps (default: skip; use --no-skip-docker to enable)")
+    p_run.add_argument("--stata-image", metavar="IMAGE",
+                       help="Pre-built private Stata Docker image tag "
+                            "(e.g. dataeditors/stata18_5-mp:2025-02-26) — "
+                            "cannot be inferred from disk, no public base image exists")
+    p_run.add_argument("--stata-license", metavar="PATH",
+                       help="Host path to stata.lic, bind-mounted read-only at container run time")
+    p_run.add_argument("--answers-file", metavar="PATH",
+                       help="JSON file of pre-supplied intake answers (non-interactive; for CI/scripts)")
+    p_run.add_argument("--skip-intake", action="store_true",
+                       help="Skip the intake questionnaire entirely (relies solely on "
+                            "filename-based restricted-data detection)")
     p_run.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # detect-stata

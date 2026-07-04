@@ -167,6 +167,30 @@ def test_readme_no_external_data_note(tmp_path):
     assert "included in the `data/` directory" in text
 
 
+def test_readme_dataset_list_shows_feeds_exhibit(tmp_path):
+    """
+    The Dataset List's 'Feeds Exhibit(s)' column must show which exhibit a
+    local data file feeds, via the provenance tracer — the actual data
+    availability statement pain point this feature addresses.
+    """
+    script = tmp_path / "code" / "tables.R"
+    exhibit_path = tmp_path / "tables" / "out.tex"
+    df = DataFile(path=Path("data/survey.csv"), exists_on_disk=True, referenced_by=[script])
+    src = ScriptWritesExhibit(script=script, write_call="writeLines", line=2, written_path=exhibit_path)
+    write_call = ScriptWritesExhibit(script=script, write_call="writeLines", line=2, written_path=exhibit_path)
+    ex = Exhibit(tex_path=exhibit_path, exists_on_disk=True, source=src)
+    graph = DependencyGraph(
+        project_root=tmp_path,
+        exhibits=[ex],
+        data_files=[df],
+        script_writes=[write_call],
+    )
+    text = generate_readme(graph, _r_env())
+    assert "Feeds Exhibit(s)" in text
+    assert "data/survey.csv" in text
+    assert str(exhibit_path) in text or "out.tex" in text
+
+
 def test_readme_rscript_command_for_r(tmp_path):
     graph = _simple_graph(tmp_path)
     text = generate_readme(graph, _r_env())

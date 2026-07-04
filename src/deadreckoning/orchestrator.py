@@ -20,7 +20,8 @@ from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, RestrictedStatus
+from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
+from .provenance import render_data_exhibit_map, trace_exhibit_inputs, write_data_exhibit_map
 from .resolve import ResolveResult, resolve_paths
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
@@ -32,6 +33,7 @@ class PipelineResult:
     working_copy: Path
     restricted: RestrictedStatus
     graph: DependencyGraph | None = None
+    provenance: dict[Path, list[Path]] | None = None
     env_spec: EnvSpec | None = None
     scan: ScanResult | None = None
     resolve: ResolveResult | None = None
@@ -83,6 +85,8 @@ def run_pipeline(
     skip_docker: bool = False,
     skip_run: bool = False,
     intake: IntakeResult | None = None,
+    stata_license: Path | None = None,
+    stata_image: str | None = None,
 ) -> PipelineResult:
     """
     Run the full DeadReckoning pipeline on a copy of project_root.
@@ -103,6 +107,20 @@ def run_pipeline(
         master_script = _detect_master_script(project_root)
 
     # Step 1: confidentiality gate — check BEFORE making working copy (spec §4.1)
+    # The author's own answer takes priority over the filename heuristic —
+    # ask before opening anything means "believe them," not "double-check first."
+    if intake is not None and intake.restricted_data:
+        return PipelineResult(
+            project_root=project_root,
+            working_copy=project_root,  # sentinel — no copy was made
+            restricted=RestrictedStatus(
+                is_restricted=True,
+                reason="Author confirmed restricted/confidential data during intake questionnaire",
+            ),
+            intake=intake,
+            error="Restricted data detected: author confirmed via intake questionnaire",
+        )
+
     # check_restricted reads filenames only, no file contents opened.
     restricted = check_restricted(project_root)
     if restricted.is_restricted:
@@ -111,6 +129,7 @@ def run_pipeline(
             project_root=project_root,
             working_copy=project_root,  # sentinel — no copy was made
             restricted=restricted,
+            intake=intake,
             error=f"Restricted data detected: {restricted.reason}",
         )
 
@@ -132,14 +151,31 @@ def run_pipeline(
     # Step 2: graph
     result.graph = build_graph(working_copy)
 
+    # Step 2b: trace exhibit <- data-input provenance; write DATA-EXHIBIT-MAP.md
+    result.provenance = trace_exhibit_inputs(result.graph)
+    write_data_exhibit_map(working_copy, render_data_exhibit_map(result.provenance))
+
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)
+    # stata_image cannot be inferred from disk (proprietary, no lockfile) — author-supplied
+    if stata_image and result.env_spec.language.upper() == "STATA":
+        result.env_spec.stata_image = stata_image
 
     # Step 4: scan all scripts (multi-language)
     result.scan = scan_scripts(working_copy)
 
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
+
+    # RESOLVE's here::here() adoption (R) introduces a new dependency on the
+    # `here` package — env_spec was captured in Step 3, before this rewrite,
+    # so it never sees it unless we add it back here.
+    if (
+        result.resolve.here_adoptions > 0
+        and result.env_spec.language.upper() == "R"
+        and not any(p.name == "here" for p in result.env_spec.packages)
+    ):
+        result.env_spec.packages.append(PackageSpec(name="here", pin_method=PinMethod.unknown))
 
     # Step 5b: ASK — surface gaps that require author input
     result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
@@ -166,6 +202,7 @@ def run_pipeline(
             result.graph,
             result.env_spec,
             master_script=master_script,
+            initial_stderr=result.native_run.stderr,
         )
         result.llm_fix_loop = llm_result
         append_fix_report(working_copy, llm_result)
@@ -191,6 +228,7 @@ def run_pipeline(
         result.env_spec,
         image_tag=docker_tag,
         master_script=master_script,
+        stata_license=stata_license,
     )
     if result.docker_fix.final_build is not None:
         result.dockerfile = result.docker_fix.final_build.dockerfile_text

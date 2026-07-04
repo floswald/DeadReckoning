@@ -107,6 +107,23 @@ def _gaps_summary(gaps: list[Gap]) -> str:
     return "\n".join(lines) if lines else "(none)"
 
 
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".Rproj.user"}
+
+
+def _list_files(root: Any, limit: int = 200) -> list[str]:
+    from pathlib import Path as _Path
+    out: list[str] = []
+    for p in sorted(_Path(root).rglob("*")):
+        if p.is_dir():
+            continue
+        if any(part in _SKIP_DIRS for part in p.parts):
+            continue
+        out.append(str(p.relative_to(root)))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _fix_fingerprint(action: FixAction) -> str:
     return json.dumps({
         "kind": action.kind,
@@ -164,7 +181,10 @@ class LLMDispatcher:
             g for g in gaps
             if g.kind not in (GapKind.inline_table, GapKind.inline_statistic)
         ]
-        if not actionable:
+        # A failing run's stderr (e.g. a missing-input-file error) is itself
+        # actionable even when no static Gap was detected for it — the graph
+        # only models exhibit/output-side gaps, not runtime read failures.
+        if not actionable and not context.last_stderr:
             return None
 
         current_model = self.max_model if self._stall_count >= 2 else self.model
@@ -214,6 +234,11 @@ class LLMDispatcher:
             "## Open gaps",
             _gaps_summary(gaps),
         ]
+
+        files = _list_files(context.working_copy)
+        if files:
+            parts += ["", "## Files on disk (relative to project root)"]
+            parts += [f"- {f}" for f in files]
 
         if context.last_stderr:
             stderr_snippet = context.last_stderr[-2000:] if len(context.last_stderr) > 2000 else context.last_stderr

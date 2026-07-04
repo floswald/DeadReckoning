@@ -1,0 +1,9 @@
+Package: BusLocationsDemo
+Title: Spatial Rents, Garage Location, and Competition in the London Bus Market (demo slice)
+Version: 0.1
+Description: One-table slice of the BusLocations replication package (Marra and Oswald),
+    extracted for a DeadReckoning presentation demo.
+Imports:
+    data.table,
+    kableExtra,
+    readr

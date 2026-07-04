@@ -78,6 +78,7 @@ class DependencyGraph(BaseModel):
     data_files: list[DataFile] = Field(default_factory=list)
     orphan_files: list[OrphanFile] = Field(default_factory=list)
     script_order: list[Path] = Field(default_factory=list)  # topological order if resolvable
+    script_writes: list[ScriptWritesExhibit] = Field(default_factory=list)  # every write call found, not just exhibit sources
 
     @property
     def is_complete(self) -> bool:
@@ -128,6 +129,9 @@ class EnvSpec(BaseModel):
     snapshot_url: Optional[str] = None     # resolved PPM URL
     confidence: float = 0.0               # 0.0–1.0
     note: Optional[str] = None            # human-readable advice (e.g. MATLAB login)
+    stata_image: Optional[str] = None     # pre-built private Stata base image tag
+                                           # (e.g. "dataeditors/stata18_5-mp:2025-02-26")
+                                           # — cannot be inferred from disk; author-supplied
 
 
 # ---------------------------------------------------------------------------

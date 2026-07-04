@@ -252,6 +252,24 @@ class TestContradictionDetection:
         contradictions = _contradiction_questions(intake, _make_graph(), None, scan)
         assert any("MATLAB" in q.question for q in contradictions)
 
+    def test_real_scan_result_triggers_stata_contradiction(self, tmp_path):
+        """
+        Regression: ScanResult (the real production type from scan_scripts())
+        must satisfy the same `.scripts` shape the mock in _fake_scan assumes.
+        Previously ScanResult had no `scripts` field, so hasattr(scan, "scripts")
+        was always False in the real pipeline and this check never fired.
+        """
+        from deadreckoning.scan import scan_scripts
+
+        (tmp_path / "code").mkdir()
+        (tmp_path / "code" / "analysis.do").write_text('display "hi"\n')
+        scan = scan_scripts(tmp_path)
+        assert scan.scripts, "scan_scripts() must populate .scripts"
+
+        intake = _make_intake(languages_claimed=["R"])
+        contradictions = _contradiction_questions(intake, _make_graph(), None, scan)
+        assert any("Stata" in q.question for q in contradictions)
+
     def test_date_discrepancy_flagged(self):
         intake = _make_intake(last_run_date="2020")
         env = _make_env(snapshot_date="2023-06-01")

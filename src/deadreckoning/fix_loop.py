@@ -281,10 +281,14 @@ def run_llm_fix_loop(
     dispatcher: Optional[Dispatcher] = None,
     master_script: str = "code/run.R",
     max_iterations: int = 5,
+    initial_stderr: Optional[str] = None,
 ) -> tuple[FixLoopResult, DependencyGraph]:
     """
     Run FIX loop with actual script re-execution after each fix.
     Uses LLMDispatcher by default; falls back gracefully if no API key.
+    `initial_stderr` should be the stderr from the run that triggered this loop —
+    without it, iteration 0 has no gaps and no stderr, so the dispatcher never
+    even sees the original failure.
     Returns (result, updated_graph).
     """
     from .graph import build_graph
@@ -296,7 +300,7 @@ def run_llm_fix_loop(
 
     result = FixLoopResult()
     current_graph = graph
-    last_stderr: Optional[str] = None
+    last_stderr: Optional[str] = initial_stderr
 
     for iteration in range(max_iterations):
         result.iterations = iteration + 1
