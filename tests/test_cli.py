@@ -73,9 +73,13 @@ def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, ca
     assert rc == 1
 
 
+@pytest.mark.local
 def test_cmd_run_skip_intake_relies_on_filename_only(tmp_path: Path, capsys) -> None:
     """--skip-intake means no questionnaire runs — restricted status comes
-    only from the filename heuristic, same as before this change."""
+    only from the filename heuristic, same as before this change.
+
+    Marked `local`: not restricted → pipeline proceeds to a real native
+    Rscript run, which CI's `not local` selection doesn't have installed."""
     (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
     (tmp_path / "run.R").write_text("# script\n")
 
