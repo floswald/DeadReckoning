@@ -23,6 +23,7 @@ pip install -e .
 (A virtualenv or conda environment is recommended, but not required.)
 
 **Optional, depending on what your project needs:**
+
 - `ANTHROPIC_API_KEY` set in your environment — enables the automated fix loop (an LLM diagnoses and repairs a run that fails natively; without it, that step is silently skipped and you're on your own for that failure).
 - Docker Desktop (or another Docker daemon) — only needed for the containerization steps at the end of the pipeline; everything up to a working native replication package runs without it.
 - Stata / MATLAB installed locally, if your project uses them — DeadReckoning detects and drives them, but can't install them for you (proprietary, license-locked).
