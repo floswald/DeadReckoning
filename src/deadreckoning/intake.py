@@ -181,6 +181,7 @@ def questionnaire(
             raw_value = answers.get(key, "")
         else:
             raw_value = _input_fn(q["prompt"]).strip()
+            print()  # blank line between questions — easier to read at the terminal
 
         if kind == "bool":
             parsed: object = _parse_bool(raw_value)

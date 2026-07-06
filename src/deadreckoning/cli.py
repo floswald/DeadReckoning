@@ -26,12 +26,22 @@ def _c(text: str, code: str) -> str:
 def _green(t: str) -> str:   return _c(t, "32")
 def _red(t: str) -> str:     return _c(t, "31")
 def _yellow(t: str) -> str:  return _c(t, "33")
+def _cyan(t: str) -> str:    return _c(t, "36")
 def _bold(t: str) -> str:    return _c(t, "1")
 def _dim(t: str) -> str:     return _c(t, "2")
 
 _OK   = _green("✓")
 _FAIL = _red("✗")
 _WARN = _yellow("!")
+
+
+def _prefix() -> str:
+    """`[dr]` tag prepended to the startup banner — cyan+bold, dims to plain text with --no-color."""
+    return _bold(_cyan("[dr]"))
+
+
+def _print_banner() -> None:
+    print(f"{_prefix()} {_bold('DeadReckoning')} {_dim('— reconstructing your replication package')}")
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +382,9 @@ def main() -> None:
     if args.no_color:
         global _USE_COLOR
         _USE_COLOR = False
+
+    if not getattr(args, "json", False):
+        _print_banner()
 
     dispatch = {
         "graph":         _cmd_graph,
