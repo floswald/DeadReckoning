@@ -12,9 +12,19 @@ Usage:
 
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 from .models import IntakeResult
+
+
+# ---------------------------------------------------------------------------
+# ANSI helpers — self-contained (questionnaire() is also called directly by
+# demo/run_demo.py, bypassing cli.py's own color state).
+# ---------------------------------------------------------------------------
+
+_USE_COLOR = sys.stdout.isatty()
+_DR_TAG = "\033[1;36m[dr]\033[0m" if _USE_COLOR else "[dr]"
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +57,14 @@ _QUESTIONS: list[dict] = [
         "prompt": (
             "Where is your code? "
             "(e.g. `code/`, or press Enter if code is in the project root): "
+        ),
+        "kind": "str_optional",
+    },
+    {
+        "key": "master_script",
+        "prompt": (
+            "What is the master/entry script that runs the full analysis end to end? "
+            "(e.g. `code/run_all.sh`, `code/master.do`, or press Enter to auto-detect): "
         ),
         "kind": "str_optional",
     },
@@ -172,7 +190,8 @@ def questionnaire(
         if answers is not None:
             raw_value = answers.get(key, "")
         else:
-            raw_value = _input_fn(q["prompt"]).strip()
+            raw_value = _input_fn(f"{_DR_TAG} {q['prompt']}").strip()
+            print()  # blank line between questions — easier to read at the terminal
 
         if kind == "bool":
             parsed: object = _parse_bool(raw_value)
@@ -189,6 +208,7 @@ def questionnaire(
     return IntakeResult(
         paper_tex_path=raw.get("paper_tex_path"),
         code_root=raw.get("code_root"),
+        master_script=raw.get("master_script"),
         data_root=raw.get("data_root"),
         last_run_date=raw.get("last_run_date"),
         languages_claimed=raw.get("languages_claimed") or [],

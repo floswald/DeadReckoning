@@ -198,6 +198,7 @@ class IntakeResult(BaseModel):
     paper_tex_path: Optional[str] = None        # §3 item 1 — relative or absolute
     code_root: Optional[str] = None             # §3 item 2
     data_root: Optional[str] = None             # §3 item 2
+    master_script: Optional[str] = None         # entry point that runs the full analysis
     last_run_date: Optional[str] = None         # §3 item 5 — free text, e.g. "March 2023"
     languages_claimed: list[str] = Field(default_factory=list)   # §3 item 6
     has_stata_license: Optional[bool] = None    # §3 item 6

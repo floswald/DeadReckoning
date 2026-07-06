@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from deadreckoning.intake import questionnaire
-from deadreckoning.orchestrator import run_pipeline
+from deadreckoning.orchestrator import _detect_master_script, run_pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -150,4 +150,53 @@ def test_here_adoption_adds_here_package(tmp_path: Path) -> None:
     assert any(p.name == "here" for p in result.env_spec.packages), (
         "env_spec.packages must include 'here' once RESOLVE adopts here::here() — "
         f"got: {[p.name for p in result.env_spec.packages]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# master_script resolution — explicit flag > intake answer > auto-detect,
+# and auto-detect must find a lone .do file even though it matches no
+# named convention (run_all.sh / run.R / master.do).
+# ---------------------------------------------------------------------------
+
+
+def test_detect_master_script_finds_lone_do_file(tmp_path: Path) -> None:
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.do").write_text("* stata\n")
+
+    assert _detect_master_script(tmp_path) == "code/analysis.do"
+
+
+def test_detect_master_script_falls_back_when_ambiguous(tmp_path: Path) -> None:
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.do").write_text("* stata\n")
+    (tmp_path / "code" / "cleaning.do").write_text("* stata\n")
+
+    # More than one candidate of the same type — can't guess, keep old default.
+    assert _detect_master_script(tmp_path) == "code/run.R"
+
+
+def test_intake_master_script_used_when_arg_not_given(tmp_path: Path) -> None:
+    """
+    Entry point named so it matches none of _detect_master_script's known
+    conventions (not run_all.sh/run.R/master.do) and isn't a lone .do file
+    either — the only way it gets picked up is via intake.master_script.
+    """
+    (tmp_path / "code").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "paper.tex").write_text(
+        r"\documentclass{article}\begin{document}\input{tables/out.tex}\end{document}"
+    )
+    (tmp_path / "code" / "analysis.py").write_text(
+        'open("tables/out.tex", "w").write("1.0")\n'
+    )
+
+    intake = questionnaire(answers={"restricted_data": "no", "master_script": "code/analysis.py"})
+
+    result = run_pipeline(tmp_path, skip_docker=True, intake=intake)
+
+    assert result.native_run is not None
+    assert result.native_run.success, (
+        f"expected intake.master_script to be used; stderr={result.native_run.stderr!r}"
     )

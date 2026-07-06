@@ -84,6 +84,14 @@ class TestQuestionnaire:
         result = questionnaire(answers={"restricted_data": "no"})
         assert result.restricted_data is False
 
+    def test_non_interactive_master_script(self):
+        result = questionnaire(answers={"restricted_data": "no", "master_script": "code/analysis.do"})
+        assert result.master_script == "code/analysis.do"
+
+    def test_non_interactive_master_script_blank_is_none(self):
+        result = questionnaire(answers={"restricted_data": "no", "master_script": ""})
+        assert result.master_script is None
+
     def test_non_interactive_full(self):
         answers = {
             "restricted_data": "no",

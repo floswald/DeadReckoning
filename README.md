@@ -46,7 +46,34 @@ Useful flags:
 - `--skip-docker` / `--no-skip-docker` — Docker is skipped by default; enable it once your native run passes.
 - `--answers-file answers.json` — supply the intake questionnaire's answers non-interactively (for scripted/CI use).
 - `--skip-intake` — bypass the questionnaire entirely; relies only on filename-based restricted-data detection.
+- `--stop-after STEP` — halt right after the named step (see pipeline steps below); useful for inspecting intermediate state one step at a time.
 - `--json` — machine-readable output.
+
+### Pipeline steps
+
+```
+DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native) → CLEAN → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
+```
+
+| Step | What it does |
+|------|--------------|
+| **DETECT** | Confidentiality gate — restricted-data check, before any copy is made |
+| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps; writes `DATA-EXHIBIT-MAP.md` |
+| **CAPTURE** | Infer language / packages / pin-method from lockfiles or a static scan |
+| **SCAN** | Extract external paths, package references, and secrets from every script |
+| **RESOLVE** | Rewrite external/absolute paths to project-relative ones |
+| **ASK** | Surface gaps/contradictions that need the author; writes `QUESTIONS.md` (halts here only if a question is blocking) |
+| **FIX** | Deterministic fixes (no LLM) — e.g. a script writing to the wrong output path |
+| **LLM-FIX** | Only runs if the native run fails — Claude proposes a fix from the stderr |
+| **RUN (native)** | Actually execute the master script |
+| **VALIDATE (native)** | Check every exhibit the script claims to produce actually landed on disk |
+| **CLEAN** | Flag files unreachable from any exhibit; writes `CLEANUP.md` (non-blocking) |
+| **GENERATE** | Write the Dockerfile (skipped by default — pass `--no-skip-docker`) |
+| **BUILD (docker)** | Build the image |
+| **VALIDATE (docker)** | Re-run and validate inside the container |
+| **DELIVER** | Write the README template + `DELIVERY_REPORT.md` |
+
+`--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — the Docker-phase steps (CLEAN onward) aren't individually stoppable yet, since they only run when Docker isn't skipped.
 
 Other commands, for a quicker look without running anything:
 ```bash
