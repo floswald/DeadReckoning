@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# Plain-CLI walkthrough of demo/toy_paper in three beats — no driver script,
-# just `deadreckoning run` invocations, meant to be typed/recorded live
-# (e.g. with asciinema) one beat at a time.
+# Plain-CLI walkthrough of demo/toy_paper in three beats — fully
+# non-interactive, no live typing, no driver script beyond this.
 #
 # Usage:
-#   demo/toy_paper_cli_beats.sh 1   # intake questionnaire (interactive TTY)
+#   demo/toy_paper_cli_beats.sh 1   # intake -> DETECT (author claims "R")
 #   demo/toy_paper_cli_beats.sh 2   # GRAPH..FIX — pipeline catches the lie
 #   demo/toy_paper_cli_beats.sh 3   # full run — native fail, Claude fixes it
+#   demo/toy_paper_cli_beats.sh all # run all three in sequence
 #
-# Beat 1 is interactive: answer "no" (restricted data) and "R" (languages)
-# to match the README's claim. Beats 2-3 replay those same answers via
-# --answers-file so the contradiction actually surfaces (there's no way to
-# carry Beat 1's live answers forward otherwise — each beat is a fresh
-# working copy).
+# All three beats replay the same canned intake answers (via
+# --answers-file) so the R-vs-Stata contradiction surfaces consistently
+# every run — each beat gets its own fresh disposable working copy.
 
 set -euo pipefail
 
@@ -25,8 +23,8 @@ cat > "$ANSWERS" <<'EOF'
 EOF
 
 beat1() {
-    echo "--- Beat 1: intake questionnaire (answer live: restricted=no, languages=R) ---"
-    deadreckoning run "$PROJECT" --stop-after detect
+    echo "--- Beat 1: intake (author claims 'R', matching the README) -> DETECT ---"
+    deadreckoning run "$PROJECT" --answers-file "$ANSWERS" --stop-after detect
 }
 
 beat2() {
@@ -45,7 +43,7 @@ beat2() {
 }
 
 beat3() {
-    echo "--- Beat 3: full run — native run fails, Claude fixes it live ---"
+    echo "--- Beat 3: full run — native run fails, Claude fixes it ---"
     LOG=$(mktemp)
     deadreckoning run "$PROJECT" --answers-file "$ANSWERS" | tee "$LOG"
     WC=$(grep "working copy:" "$LOG" | awk '{print $NF}')
@@ -60,8 +58,9 @@ beat3() {
 }
 
 case "${1:-}" in
-    1) beat1 ;;
-    2) beat2 ;;
-    3) beat3 ;;
-    *) echo "usage: $0 {1|2|3}" >&2; exit 1 ;;
+    1)   beat1 ;;
+    2)   beat2 ;;
+    3)   beat3 ;;
+    all) beat1; echo; beat2; echo; beat3 ;;
+    *)   echo "usage: $0 {1|2|3|all}" >&2; exit 1 ;;
 esac
