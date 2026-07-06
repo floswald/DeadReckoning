@@ -12,9 +12,19 @@ Usage:
 
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 from .models import IntakeResult
+
+
+# ---------------------------------------------------------------------------
+# ANSI helpers — self-contained (questionnaire() is also called directly by
+# demo/run_demo.py, bypassing cli.py's own color state).
+# ---------------------------------------------------------------------------
+
+_USE_COLOR = sys.stdout.isatty()
+_DR_TAG = "\033[1;36m[dr]\033[0m" if _USE_COLOR else "[dr]"
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +190,7 @@ def questionnaire(
         if answers is not None:
             raw_value = answers.get(key, "")
         else:
-            raw_value = _input_fn(q["prompt"]).strip()
+            raw_value = _input_fn(f"{_DR_TAG} {q['prompt']}").strip()
             print()  # blank line between questions — easier to read at the terminal
 
         if kind == "bool":
