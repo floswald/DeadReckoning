@@ -51,6 +51,14 @@ _QUESTIONS: list[dict] = [
         "kind": "str_optional",
     },
     {
+        "key": "master_script",
+        "prompt": (
+            "What is the master/entry script that runs the full analysis end to end? "
+            "(e.g. `code/run_all.sh`, `code/master.do`, or press Enter to auto-detect): "
+        ),
+        "kind": "str_optional",
+    },
+    {
         "key": "data_root",
         "prompt": (
             "Where is your data? "
@@ -189,6 +197,7 @@ def questionnaire(
     return IntakeResult(
         paper_tex_path=raw.get("paper_tex_path"),
         code_root=raw.get("code_root"),
+        master_script=raw.get("master_script"),
         data_root=raw.get("data_root"),
         last_run_date=raw.get("last_run_date"),
         languages_claimed=raw.get("languages_claimed") or [],

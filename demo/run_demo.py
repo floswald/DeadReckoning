@@ -70,6 +70,7 @@ def act1_intake_lie(interactive: bool, scripted: bool) -> "IntakeResult":  # noq
             "languages_claimed": "R",
             "last_run_date": "",
             "data_root": "data",
+            "master_script": "",
         }
         for k, v in answers.items():
             print(f"  {k}: {v!r}")

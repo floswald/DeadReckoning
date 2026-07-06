@@ -75,6 +75,13 @@ def _detect_master_script(project_root: Path) -> str:
     ):
         if (project_root / candidate).exists():
             return candidate
+    # No named convention matched — fall back to the sole script of a
+    # recognized type in code/, if there's exactly one (author didn't
+    # answer the intake master-script question and no convention fit).
+    for pattern in ("*.do", "*.R", "*.r", "*.py", "*.jl"):
+        matches = sorted((project_root / "code").glob(pattern)) if (project_root / "code").exists() else []
+        if len(matches) == 1:
+            return str(matches[0].relative_to(project_root))
     return "code/run.R"
 
 
@@ -103,8 +110,9 @@ def run_pipeline(
     9. BUILD    — docker build
     10. VALIDATE (container) — all exhibits regenerate inside container
     """
+    # Priority: explicit --master-script flag > author's intake answer > auto-detect.
     if master_script is None:
-        master_script = _detect_master_script(project_root)
+        master_script = (intake.master_script if intake else None) or _detect_master_script(project_root)
 
     # Step 1: confidentiality gate — check BEFORE making working copy (spec §4.1)
     # The author's own answer takes priority over the filename heuristic —
