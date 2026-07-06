@@ -85,6 +85,14 @@ def _detect_master_script(project_root: Path) -> str:
     return "code/run.R"
 
 
+# Step names accepted by `stop_after`, in pipeline order — used to halt
+# early for step-by-step demos/narration without a separate driver script.
+STOP_AFTER_STEPS = (
+    "detect", "graph", "capture", "scan", "resolve",
+    "ask", "fix", "llm-fix", "run", "validate",
+)
+
+
 def run_pipeline(
     project_root: Path,
     master_script: str | None = None,
@@ -94,6 +102,7 @@ def run_pipeline(
     intake: IntakeResult | None = None,
     stata_license: Path | None = None,
     stata_image: str | None = None,
+    stop_after: str | None = None,
 ) -> PipelineResult:
     """
     Run the full DeadReckoning pipeline on a copy of project_root.
@@ -109,7 +118,13 @@ def run_pipeline(
     8. GENERATE — produce Dockerfile
     9. BUILD    — docker build
     10. VALIDATE (container) — all exhibits regenerate inside container
+
+    `stop_after` (one of STOP_AFTER_STEPS) halts the pipeline right after
+    that step, for narrating steps one at a time (e.g. in a recorded demo)
+    without writing a separate driver script.
     """
+    if stop_after is not None and stop_after not in STOP_AFTER_STEPS:
+        raise ValueError(f"stop_after must be one of {STOP_AFTER_STEPS!r}, got {stop_after!r}")
     # Priority: explicit --master-script flag > author's intake answer > auto-detect.
     if master_script is None:
         master_script = (intake.master_script if intake else None) or _detect_master_script(project_root)
@@ -156,6 +171,9 @@ def run_pipeline(
         intake=intake,
     )
 
+    if stop_after == "detect":
+        return result
+
     # Step 2: graph
     result.graph = build_graph(working_copy)
 
@@ -163,14 +181,23 @@ def run_pipeline(
     result.provenance = trace_exhibit_inputs(result.graph)
     write_data_exhibit_map(working_copy, render_data_exhibit_map(result.provenance))
 
+    if stop_after == "graph":
+        return result
+
     # Step 3: capture env
     result.env_spec = capture_env(working_copy)
     # stata_image cannot be inferred from disk (proprietary, no lockfile) — author-supplied
     if stata_image and result.env_spec.language.upper() == "STATA":
         result.env_spec.stata_image = stata_image
 
+    if stop_after == "capture":
+        return result
+
     # Step 4: scan all scripts (multi-language)
     result.scan = scan_scripts(working_copy)
+
+    if stop_after == "scan":
+        return result
 
     # Step 5: resolve paths (mutates working copy only)
     result.resolve = resolve_paths(working_copy, result.scan)
@@ -185,6 +212,9 @@ def run_pipeline(
     ):
         result.env_spec.packages.append(PackageSpec(name="here", pin_method=PinMethod.unknown))
 
+    if stop_after == "resolve":
+        return result
+
     # Step 5b: ASK — surface gaps that require author input
     result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
         working_copy, result.graph, result.env_spec, result.scan, intake=intake
@@ -193,12 +223,15 @@ def run_pipeline(
         result.error = "Author input required: see QUESTIONS.md in working copy"
         return result
 
+    if stop_after == "ask":
+        return result
+
     # Step 6: FIX loop — deterministic fixes (e.g. wrong output paths)
     fix_result, result.graph = run_fix_loop(working_copy, result.graph, result.env_spec)
     result.fix_loop = fix_result
     append_fix_report(working_copy, fix_result)
 
-    if skip_run:
+    if skip_run or stop_after == "fix":
         return result
 
     # Step 7+8: native run + validate
@@ -215,13 +248,22 @@ def run_pipeline(
         result.llm_fix_loop = llm_result
         append_fix_report(working_copy, llm_result)
 
+        if stop_after == "llm-fix":
+            return result
+
         # Re-run after LLM fixes
         result.native_run = run_natively(working_copy, master_script=master_script)
         if not result.native_run.success:
             result.error = f"Native run failed (rc={result.native_run.returncode})"
             return result
 
+    if stop_after == "run":
+        return result
+
     result.native_validation = validate_outputs(working_copy, result.graph)
+
+    if stop_after == "validate":
+        return result
 
     # CLEAN: identify unreachable files; write CLEANUP.md (non-blocking)
     result.clean, _needs_review = run_clean_step(working_copy, result.graph)

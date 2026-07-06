@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .orchestrator import STOP_AFTER_STEPS
+
 
 # ---------------------------------------------------------------------------
 # ANSI helpers (no deps; fall back to plain if not a tty)
@@ -224,7 +226,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     if not args.json:
         print(_bold(f"\nRunning pipeline — {project.name}"))
-        print(_dim("  (working copy created; original untouched)"))
 
     result = run_pipeline(
         project,
@@ -233,12 +234,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
         stata_image=args.stata_image or None,
         stata_license=Path(args.stata_license) if args.stata_license else None,
         intake=intake,
+        stop_after=args.stop_after,
     )
+
+    if not args.json:
+        print(f"  {_bold(_cyan('working copy'))}: {result.working_copy}")
+        print(_dim("  (original untouched)"))
+
+    stopped_early = args.stop_after is not None and not result.error and not result.needs_author_input
 
     if args.json:
         print(json.dumps(_to_jsonable(result), indent=2, default=str))
         if result.needs_author_input:
             return 2
+        if stopped_early:
+            return 0
         return 0 if (not result.error and result.native_ok) else 1
 
     print(f"\n  {'step':<22}  result")
@@ -254,45 +264,85 @@ def _cmd_run(args: argparse.Namespace) -> int:
         suffix = f"  {_dim(note)}" if note else ""
         print(f"  {step:<22}  {icon}{suffix}")
 
-    _row("DETECT",         not result.restricted.is_restricted)
-    _row("GRAPH",          result.graph is not None,
-         f"{len(result.graph.gaps)} gap(s)" if result.graph else "")
-    _row("CAPTURE",        result.env_spec is not None,
-         result.env_spec.pin_method.value if result.env_spec else "")
-    _row("SCAN",           result.scan is not None,
-         f"{len(result.scan.used_packages)} pkg(s), "
-         f"{len(result.scan.external_paths)} ext path(s)" if result.scan else "")
-    _row("RESOLVE",        result.resolve is not None,
-         f"{result.resolve.rewrite_count} rewrite(s)" if result.resolve else "")
-    if result.needs_author_input:
-        n_q = len(result.ask.questions) if result.ask else 0
-        _row("ASK",        False, f"{n_q} question(s) — edit QUESTIONS.md and re-run")
-    elif result.ask and result.ask.questions:
-        _row("ASK",        True,
-             f"{len(result.ask.responses)} response(s) received")
-    _row("FIX",            result.fix_loop is not None and result.fix_loop.converged,
-         f"{len(result.fix_loop.fixes_applied)} fix(es)" if result.fix_loop else "skipped")
-    if result.llm_fix_loop is not None:
-        _row("LLM-FIX",    result.llm_fix_loop.converged,
-             f"{len(result.llm_fix_loop.fixes_applied)} fix(es), "
-             f"{result.llm_fix_loop.iterations} iter(s)")
-    _row("RUN (native)",   result.native_run.success if result.native_run else None,
-         f"rc={result.native_run.returncode}" if result.native_run else "skipped")
-    _row("VALIDATE (native)", result.native_validation is not None and result.native_validation.success
-         if result.native_validation else None,
-         "" if not result.native_validation else
-         f"{len(result.native_validation.missing)} missing")
+    def _row_detect() -> None:
+        _row("DETECT", not result.restricted.is_restricted)
 
-    if not args.skip_docker:
-        _row("GENERATE",      result.dockerfile is not None)
-        _row("BUILD (docker)", result.docker_build.success if result.docker_build else None,
-             "" if not result.docker_build else ("" if result.docker_build.success else "see logs"))
-        _row("VALIDATE (docker)", result.container_ok if result.container_validation else None)
+    def _row_graph() -> None:
+        _row("GRAPH", result.graph is not None,
+             f"{len(result.graph.gaps)} gap(s)" if result.graph else "")
+
+    def _row_capture() -> None:
+        _row("CAPTURE", result.env_spec is not None,
+             result.env_spec.pin_method.value if result.env_spec else "")
+
+    def _row_scan() -> None:
+        _row("SCAN", result.scan is not None,
+             f"{len(result.scan.used_packages)} pkg(s), "
+             f"{len(result.scan.external_paths)} ext path(s)" if result.scan else "")
+
+    def _row_resolve() -> None:
+        _row("RESOLVE", result.resolve is not None,
+             f"{result.resolve.rewrite_count} rewrite(s)" if result.resolve else "")
+
+    def _row_ask() -> None:
+        if result.needs_author_input:
+            n_q = len(result.ask.questions) if result.ask else 0
+            _row("ASK", False, f"{n_q} question(s) — edit QUESTIONS.md and re-run")
+        elif result.ask and result.ask.questions:
+            _row("ASK", True, f"{len(result.ask.responses)} response(s) received")
+
+    def _row_fix() -> None:
+        _row("FIX", result.fix_loop is not None and result.fix_loop.converged,
+             f"{len(result.fix_loop.fixes_applied)} fix(es)" if result.fix_loop else "skipped")
+
+    def _row_llm_fix() -> None:
+        if result.llm_fix_loop is not None:
+            _row("LLM-FIX", result.llm_fix_loop.converged,
+                 f"{len(result.llm_fix_loop.fixes_applied)} fix(es), "
+                 f"{result.llm_fix_loop.iterations} iter(s)")
+
+    def _row_run() -> None:
+        _row("RUN (native)", result.native_run.success if result.native_run else None,
+             f"rc={result.native_run.returncode}" if result.native_run else "skipped")
+
+    def _row_validate() -> None:
+        _row("VALIDATE (native)", result.native_validation is not None and result.native_validation.success
+             if result.native_validation else None,
+             "" if not result.native_validation else
+             f"{len(result.native_validation.missing)} missing")
+
+    # Printed in pipeline order; stop right after the row matching
+    # --stop-after so later rows (which never ran) aren't shown as failures.
+    for key, row_fn in (
+        ("detect", _row_detect),
+        ("graph", _row_graph),
+        ("capture", _row_capture),
+        ("scan", _row_scan),
+        ("resolve", _row_resolve),
+        ("ask", _row_ask),
+        ("fix", _row_fix),
+        ("llm-fix", _row_llm_fix),
+        ("run", _row_run),
+        ("validate", _row_validate),
+    ):
+        row_fn()
+        if args.stop_after == key:
+            break
+        if key == "ask" and result.needs_author_input:
+            break
+    else:
+        if not args.skip_docker:
+            _row("GENERATE",      result.dockerfile is not None)
+            _row("BUILD (docker)", result.docker_build.success if result.docker_build else None,
+                 "" if not result.docker_build else ("" if result.docker_build.success else "see logs"))
+            _row("VALIDATE (docker)", result.container_ok if result.container_validation else None)
 
     print()
     if result.needs_author_input:
         print(f"  {_WARN} {_bold('WAITING')}: author input required")
         print(f"  {_dim('Edit QUESTIONS.md in the working copy and re-run.')}")
+    elif stopped_early:
+        print(f"  {_dim(f'stopped after --stop-after={args.stop_after}')}")
     elif result.error:
         print(f"  {_FAIL} {_bold('FAILED')}: {result.error}")
     else:
@@ -301,6 +351,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     if result.needs_author_input:
         return 2
+    if stopped_early:
+        return 0
     ok = not result.error and result.native_ok
     return 0 if ok else 1
 
@@ -371,6 +423,9 @@ def main() -> None:
     p_run.add_argument("--skip-intake", action="store_true",
                        help="Skip the intake questionnaire entirely (relies solely on "
                             "filename-based restricted-data detection)")
+    p_run.add_argument("--stop-after", metavar="STEP", choices=STOP_AFTER_STEPS, default=None,
+                       help=f"Halt right after the named step, for narrating one step at a "
+                            f"time (choices: {', '.join(STOP_AFTER_STEPS)})")
     p_run.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # detect-stata

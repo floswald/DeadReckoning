@@ -26,6 +26,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         stata_license=None,
         answers_file=None,
         skip_intake=True,
+        stop_after=None,
         json=True,
     )
     defaults.update(overrides)
