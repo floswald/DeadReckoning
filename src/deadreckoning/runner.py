@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import datetime
+import hashlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .models import DependencyGraph
+from .models import DataFile, DependencyGraph
 
 
 @dataclass
@@ -162,3 +164,164 @@ def validate_outputs(project_root: Path, graph: DependencyGraph) -> ValidationRe
         else:
             missing.append(exhibit.tex_path)
     return ValidationResult(missing=missing, present=present)
+
+
+@dataclass
+class SuspectFile:
+    path: Path
+    evidence: str       # "git" | "mtime"
+    confidence: str      # "high" | "low"
+    detail: str
+
+
+@dataclass
+class FidelityResult:
+    exhibit: Path
+    matches_reference: bool
+    reference_hash: str | None = None
+    regenerated_hash: str | None = None
+    suspects: list[SuspectFile] = field(default_factory=list)
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def check_exhibit_fidelity(
+    project_root: Path,
+    graph: DependencyGraph,
+    exhibit_tex_path: Path,
+    reference_content: bytes,
+) -> FidelityResult:
+    """
+    Compare a regenerated exhibit against a reference snapshot (e.g. the
+    exhibit as it appeared in the published PDF, captured before the run).
+
+    Unlike validate_outputs(), which only checks existence, this catches the
+    "ran clean, exit 0, file exists, but the numbers are no longer what was
+    published" case — a run that is green by every existing check and still
+    not reproducible. On mismatch, walks the dependency chain feeding this
+    exhibit to name the upstream data file(s) most likely responsible.
+    """
+    full_path = project_root / exhibit_tex_path
+    if not full_path.exists():
+        return FidelityResult(
+            exhibit=exhibit_tex_path,
+            matches_reference=False,
+            reference_hash=_sha256(reference_content),
+            regenerated_hash=None,
+        )
+
+    regenerated_content = full_path.read_bytes()
+    reference_hash = _sha256(reference_content)
+    regenerated_hash = _sha256(regenerated_content)
+
+    if reference_hash == regenerated_hash:
+        return FidelityResult(
+            exhibit=exhibit_tex_path,
+            matches_reference=True,
+            reference_hash=reference_hash,
+            regenerated_hash=regenerated_hash,
+        )
+
+    return FidelityResult(
+        exhibit=exhibit_tex_path,
+        matches_reference=False,
+        reference_hash=reference_hash,
+        regenerated_hash=regenerated_hash,
+        suspects=_localize_divergence(project_root, graph, exhibit_tex_path),
+    )
+
+
+def _upstream_data_files(graph: DependencyGraph, source_script: Path) -> list[DataFile]:
+    """Walk backwards from a script through produced_by links to collect
+    every upstream data file feeding it, however many stages back."""
+    visited_scripts: set[Path] = set()
+    to_visit = [source_script]
+    upstream: list[DataFile] = []
+    seen_paths: set[Path] = set()
+
+    while to_visit:
+        script = to_visit.pop()
+        if script in visited_scripts:
+            continue
+        visited_scripts.add(script)
+        for df in graph.data_files:
+            if script not in df.referenced_by or df.path in seen_paths:
+                continue
+            seen_paths.add(df.path)
+            upstream.append(df)
+            if df.produced_by is not None and df.produced_by not in visited_scripts:
+                to_visit.append(df.produced_by)
+
+    return upstream
+
+
+def _git_last_change(project_root: Path, actual_path: Path) -> str | None:
+    """`git log --follow` for a path, if the project is a git repo and the
+    path is tracked. Returns None (never raises) when git/the path/the repo
+    isn't usable, so callers fall back to the mtime heuristic."""
+    try:
+        rel = actual_path.resolve().relative_to(project_root.resolve())
+    except ValueError:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--follow", "--format=%H %ad %an", "--date=short", "--", str(rel)],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _localize_divergence(
+    project_root: Path, graph: DependencyGraph, exhibit_tex_path: Path
+) -> list[SuspectFile]:
+    """
+    Name the upstream data file(s) most likely responsible for a content
+    divergence. Prefers git history (exact commit/date/author) when the
+    project is a git repo and the path is tracked; otherwise falls back to
+    filesystem mtime — a lead, not proof, since Dropbox sync / zip / scp
+    routinely rewrite mtimes without any real edit having happened.
+    """
+    exhibit = next((e for e in graph.exhibits if e.tex_path == exhibit_tex_path), None)
+    if exhibit is None or exhibit.source is None:
+        return []
+
+    is_git_repo = (project_root / ".git").exists()
+    suspects: list[SuspectFile] = []
+
+    for df in _upstream_data_files(graph, exhibit.source.script):
+        actual_path = df.path if df.is_external else (project_root / df.path)
+
+        if is_git_repo:
+            detail = _git_last_change(project_root, actual_path)
+            if detail:
+                suspects.append(
+                    SuspectFile(path=df.path, evidence="git", confidence="high", detail=detail)
+                )
+                continue
+
+        if df.mtime is not None:
+            ts = datetime.datetime.fromtimestamp(df.mtime).isoformat(timespec="seconds")
+            suspects.append(
+                SuspectFile(
+                    path=df.path,
+                    evidence="mtime",
+                    confidence="low",
+                    detail=(
+                        f"last modified {ts} (filesystem mtime only — not reliable "
+                        "provenance; Dropbox sync, zip/unzip, and scp all rewrite "
+                        "mtimes without a real edit happening. Treat this as a lead, "
+                        "not proof — confirm with the author who touched it.)"
+                    ),
+                )
+            )
+
+    return suspects

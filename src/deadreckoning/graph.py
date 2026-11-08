@@ -833,6 +833,44 @@ def build_graph(project_root: Path) -> DependencyGraph:
                         if script not in existing.referenced_by:
                             existing.referenced_by.append(script)
 
+    # 7b. Link data files to the script that produced them (if any write call
+    # matches), and record mtime — both feed the chain-walking localizer used
+    # by the content-fidelity check in runner.py.
+    producer_by_abs: dict[Path, Path] = {}
+    for w in all_writes:
+        for cand in (
+            (w.script.parent / w.written_path).resolve(),
+            (project_root / w.written_path).resolve(),
+        ):
+            producer_by_abs.setdefault(cand, w.script)
+
+    for df in data_files:
+        actual_path = df.path if df.is_external else (project_root / df.path)
+        if df.exists_on_disk:
+            try:
+                df.mtime = actual_path.resolve().stat().st_mtime
+            except OSError:
+                pass
+
+        for script in df.referenced_by:
+            candidates = (
+                (script.parent / df.path).resolve(),
+                (project_root / df.path).resolve(),
+            )
+            for cand in candidates:
+                producer = producer_by_abs.get(cand)
+                if producer is not None and producer != script:
+                    df.produced_by = producer
+                    break
+            if df.produced_by is not None:
+                break
+
+    # 7c. Topological script order (best-effort): producer scripts before the
+    # scripts that read their output. Falls back to the stable sorted list
+    # already in `scripts` whenever a cycle or disconnected set prevents a
+    # full topological sort.
+    script_order = _topological_script_order(scripts, data_files)
+
     # 7. Orphan files: scripts that produce nothing in the exhibit list
     needed_scripts = {e.source.script for e in exhibits if e.source}
     for script in scripts:
@@ -857,8 +895,41 @@ def build_graph(project_root: Path) -> DependencyGraph:
         gaps=gaps,
         data_files=data_files,
         orphan_files=[],
+        script_order=script_order,
         script_writes=all_writes,
     )
+
+
+def _topological_script_order(scripts: list[Path], data_files: list[DataFile]) -> list[Path]:
+    """Kahn's algorithm over producer -> consumer edges derived from data_files.produced_by."""
+    edges: dict[Path, set[Path]] = {s: set() for s in scripts}
+    indegree: dict[Path, int] = {s: 0 for s in scripts}
+    for df in data_files:
+        if df.produced_by is None or df.produced_by not in edges:
+            continue
+        for consumer in df.referenced_by:
+            if consumer == df.produced_by or consumer not in edges:
+                continue
+            if consumer not in edges[df.produced_by]:
+                edges[df.produced_by].add(consumer)
+                indegree[consumer] += 1
+
+    ready = sorted(s for s in scripts if indegree[s] == 0)
+    order: list[Path] = []
+    while ready:
+        node = ready.pop(0)
+        order.append(node)
+        for consumer in sorted(edges[node]):
+            indegree[consumer] -= 1
+            if indegree[consumer] == 0:
+                ready.append(consumer)
+        ready.sort()
+
+    if len(order) != len(scripts):
+        # Cycle or inconsistency — fall back to the stable sorted list rather
+        # than return a partial/misleading order.
+        return scripts
+    return order
 
 
 def _candidate_scripts(exhibit_abs: Path, scripts: list[Path]) -> list[Path]:

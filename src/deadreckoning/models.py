@@ -63,6 +63,8 @@ class DataFile(BaseModel):
     is_external: bool = False             # outside project root
     external_kind: Optional[str] = None  # "dropbox", "url", "network_share", "hpc", "coauthor"
     url: Optional[str] = None
+    produced_by: Optional[Path] = None    # script whose write call matches this path, if any
+    mtime: Optional[float] = None         # filesystem mtime at graph-build time
 
 
 class OrphanFile(BaseModel):

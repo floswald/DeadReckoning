@@ -1,0 +1,27 @@
+\documentclass{article}
+\usepackage{booktabs}
+
+\title{Regional Revenue: A Two-Author Toy Example}
+\author{A. Author (with coauthor data from B. Coauthor)}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+This short paper illustrates a weighted regional revenue statistic built
+from two inputs: an administrative revenue panel cleaned by the first
+author (\texttt{code/clean.R}), and a region-weight file provided by the
+second author (\texttt{data/input\_data\_from\_2.csv}). The two are
+combined in \texttt{code/combine.jl} to produce Table~\ref{tab:main}.
+
+\section{Results}
+
+\begin{table}[h]
+\centering
+\input{output/Table3.tex}
+\caption{Average regional revenue (weighted)}
+\label{tab:main}
+\end{table}
+
+\end{document}

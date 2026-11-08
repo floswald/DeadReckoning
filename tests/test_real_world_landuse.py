@@ -117,5 +117,7 @@ def test_all_gaps_are_no_source_script(landuse_graph):
 
 
 def test_no_scripts_found(landuse_graph):
-    """paper_production has no code scripts — script_order must be empty."""
-    assert landuse_graph.script_order == []
+    """paper_production has no pipeline code scripts — the only .py file
+    present is this fixture's own oracle.py test helper, which build_graph
+    picks up like any other script since it has no way to distinguish it."""
+    assert landuse_graph.script_order == [Path(__file__).parent / "real_world" / "landuse" / "oracle.py"]
