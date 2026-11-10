@@ -40,6 +40,7 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
     .do      → Stata (via stata.run_stata, wrapped into RunResult)
     .jl      → julia
     .py      → python
+    .sh      → bash (a multi-language orchestrator — see _run_shell)
     """
     ext = Path(master_script).suffix.lower()
     if ext in (".r",):
@@ -52,6 +53,8 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
         return _run_python(project_root, master_script)
     if ext == ".m":
         return _run_matlab(project_root, master_script)
+    if ext == ".sh":
+        return _run_shell(project_root, master_script)
     return RunResult(
         returncode=1,
         stdout="",
@@ -92,6 +95,37 @@ def _run_python(project_root: Path, master_script: str) -> RunResult:
     result = subprocess.run(
         [sys.executable, master_script],
         cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    return RunResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+
+
+def _run_shell(project_root: Path, master_script: str) -> RunResult:
+    """
+    A shell-script master (the run_all.sh-style multi-language orchestrator
+    `_detect_master_script` prefers above any single-language script) is
+    conventionally run FROM ITS OWN DIRECTORY, not the project root —
+    every relative path inside it, including paths handed to whatever
+    Stata/R/Julia process it launches, is written assuming that. Using
+    project_root as cwd here breaks a correct package the moment the shell
+    script references anything by relative path.
+
+    Confirmed against a real published package: `code/run_all.sh` invokes
+    `stata-mp -b stata/replication_aggregate_main.do`, a path only valid
+    with cwd=code/ (= run_all.sh's own directory) — the README's own setup
+    instructions say exactly this ("navigate to code/, then ./run_all.sh").
+    With cwd=project_root instead, that first line fails immediately,
+    before Stata, R, or Julia ever run.
+    """
+    script_path = project_root / master_script
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=script_path.parent,
         capture_output=True,
         text=True,
     )
@@ -325,3 +359,27 @@ def _localize_divergence(
             )
 
     return suspects
+
+
+def group_fidelity_mismatches(results: list[FidelityResult]) -> dict[Path, list[Path]]:
+    """
+    Group a batch of check_exhibit_fidelity() results by suspect: map each
+    upstream file implicated in at least one mismatch to the exhibit(s) it's
+    implicated in.
+
+    Presentation-layer aggregation only — check_exhibit_fidelity() itself
+    stays one-exhibit-in, one-result-out. Lets a driver running the check
+    across several exhibits show "these N exhibits all point at the same
+    upstream file" instead of reimplementing the grouping itself.
+
+    Matching exhibits and exhibits whose suspect list is empty (mismatched,
+    but the dependency chain dead-ends before naming anything) contribute
+    nothing.
+    """
+    grouped: dict[Path, list[Path]] = {}
+    for result in results:
+        if result.matches_reference:
+            continue
+        for suspect in result.suspects:
+            grouped.setdefault(suspect.path, []).append(result.exhibit)
+    return grouped

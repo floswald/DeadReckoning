@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from deadreckoning.graph import build_graph
-from deadreckoning.runner import check_exhibit_fidelity
+from deadreckoning.runner import FidelityResult, SuspectFile, check_exhibit_fidelity, group_fidelity_mismatches
 
 
 def _write_chain(root: Path) -> None:
@@ -134,3 +134,57 @@ def test_missing_exhibit_file_reports_mismatch(chain_project):
 
     assert not result.matches_reference
     assert result.regenerated_hash is None
+
+
+# ---------------------------------------------------------------------------
+# group_fidelity_mismatches — fan-out aggregation over several results
+# ---------------------------------------------------------------------------
+
+
+def _suspect(path: str, evidence: str = "git") -> SuspectFile:
+    return SuspectFile(path=Path(path), evidence=evidence, confidence="high", detail="d")
+
+
+def test_multiple_exhibits_sharing_one_suspect_group_together():
+    shared = Path("data/raw/FRA_base.dta")
+    results = [
+        FidelityResult(exhibit=Path("figure1.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+        FidelityResult(exhibit=Path("figureA2a.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+        FidelityResult(exhibit=Path("figureA2b.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert set(grouped.keys()) == {shared}
+    assert set(grouped[shared]) == {Path("figure1.pdf"), Path("figureA2a.pdf"), Path("figureA2b.pdf")}
+
+
+def test_mismatched_exhibit_with_no_suspects_does_not_appear():
+    results = [
+        FidelityResult(exhibit=Path("orphan.pdf"), matches_reference=False, suspects=[]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {}
+
+
+def test_clean_matching_exhibit_contributes_nothing():
+    results = [
+        FidelityResult(exhibit=Path("figureA3.pdf"), matches_reference=True, suspects=[]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {}
+
+
+def test_different_suspects_kept_in_separate_groups():
+    results = [
+        FidelityResult(exhibit=Path("a.pdf"), matches_reference=False, suspects=[_suspect("input1.csv")]),
+        FidelityResult(exhibit=Path("b.pdf"), matches_reference=False, suspects=[_suspect("input2.csv")]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {Path("input1.csv"): [Path("a.pdf")], Path("input2.csv"): [Path("b.pdf")]}
