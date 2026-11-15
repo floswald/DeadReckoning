@@ -241,3 +241,47 @@ def test_cpp_random_device_seeded_engine_still_flagged(tmp_path):
     )
     result = _check(tmp_path)
     assert len(result.findings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Rcpp — draws from R's own RNG stream, seeded upstream by R's set.seed()
+# ---------------------------------------------------------------------------
+
+
+def test_rcpp_rnorm_unseeded_flagged(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shocks.cpp").write_text(
+        "#include <Rcpp.h>\n"
+        "// [[Rcpp::export]]\n"
+        "double draw() { return Rcpp::rnorm(1)[0]; }\n"
+    )
+    result = _check(tmp_path)
+    assert len(result.findings) == 1
+    assert result.findings[0].language == "C++"
+
+
+def test_rcpp_rnorm_covered_by_upstream_r_set_seed(tmp_path):
+    """An Rcpp .cpp draws from R's own RNG stream — an upstream R script's
+    set.seed() (itself a master script, so always walked first) covers
+    the .cpp sourced from it."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "code" / "simulate.R").write_text(
+        "set.seed(1)\nRcpp::sourceCpp('src/shocks.cpp')\n"
+    )
+    (tmp_path / "src" / "shocks.cpp").write_text(
+        "#include <Rcpp.h>\n"
+        "// [[Rcpp::export]]\n"
+        "double draw() { return Rcpp::rnorm(1)[0]; }\n"
+    )
+    result = _check(tmp_path)
+    assert result.findings == []
+
+
+def test_r_api_norm_rand_unseeded_flagged(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shocks.cpp").write_text(
+        "#include <Rcpp.h>\n// [[Rcpp::export]]\ndouble draw() { return norm_rand(); }\n"
+    )
+    result = _check(tmp_path)
+    assert len(result.findings) == 1

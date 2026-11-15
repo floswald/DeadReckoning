@@ -23,6 +23,14 @@ already seeded (common: one `set.seed()` in the master, sourced children
 inherit the RNG state) is handled by walking `graph.script_order` and
 treating "any script up to and including this one has a seed call" as
 satisfied — not just the current script in isolation.
+
+The C/C++ stochastic patterns also cover Rcpp's embedding of R's own RNG
+(`Rcpp::rnorm`/`R::rnorm`/`norm_rand`/`unif_rand`/...) — an Rcpp-compiled
+`.cpp` draws from the SAME RNG stream as the R script that calls it, so
+it is correctly "seeded" by an upstream `set.seed()` in that R driver,
+via the same `graph.script_order` walk (R scripts are master scripts and
+so appear in script_order; the `.cpp` they source via `sourceCpp()` is
+picked up by the fallback scan below and always walked after them).
 """
 
 from __future__ import annotations
@@ -115,6 +123,8 @@ _RNG_PATTERNS: dict[str, tuple[str, re.Pattern[str], re.Pattern[str]]] = {
             r"\brand\s*\(\s*\)"
             r"|\b(?:uniform_real_distribution|uniform_int_distribution"
             r"|normal_distribution|bernoulli_distribution)\s*<"
+            r"|\b(?:Rcpp|R)::r(?:norm|unif|binom|pois|exp|gamma|beta)\s*\("
+            r"|\b(?:norm_rand|unif_rand|exp_rand)\s*\(\s*\)"
         ),
     ),
     ".cc": (
@@ -127,6 +137,8 @@ _RNG_PATTERNS: dict[str, tuple[str, re.Pattern[str], re.Pattern[str]]] = {
             r"\brand\s*\(\s*\)"
             r"|\b(?:uniform_real_distribution|uniform_int_distribution"
             r"|normal_distribution|bernoulli_distribution)\s*<"
+            r"|\b(?:Rcpp|R)::r(?:norm|unif|binom|pois|exp|gamma|beta)\s*\("
+            r"|\b(?:norm_rand|unif_rand|exp_rand)\s*\(\s*\)"
         ),
     ),
     ".cxx": (
@@ -139,6 +151,8 @@ _RNG_PATTERNS: dict[str, tuple[str, re.Pattern[str], re.Pattern[str]]] = {
             r"\brand\s*\(\s*\)"
             r"|\b(?:uniform_real_distribution|uniform_int_distribution"
             r"|normal_distribution|bernoulli_distribution)\s*<"
+            r"|\b(?:Rcpp|R)::r(?:norm|unif|binom|pois|exp|gamma|beta)\s*\("
+            r"|\b(?:norm_rand|unif_rand|exp_rand)\s*\(\s*\)"
         ),
     ),
     ".hpp": (
@@ -151,6 +165,8 @@ _RNG_PATTERNS: dict[str, tuple[str, re.Pattern[str], re.Pattern[str]]] = {
             r"\brand\s*\(\s*\)"
             r"|\b(?:uniform_real_distribution|uniform_int_distribution"
             r"|normal_distribution|bernoulli_distribution)\s*<"
+            r"|\b(?:Rcpp|R)::r(?:norm|unif|binom|pois|exp|gamma|beta)\s*\("
+            r"|\b(?:norm_rand|unif_rand|exp_rand)\s*\(\s*\)"
         ),
     ),
 }

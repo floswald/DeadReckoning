@@ -11,6 +11,17 @@ without ever having saved the command to a file). DeadReckoning cannot
 guess that command from disk, so when compiled-language source is present
 and no build artifact is found anywhere in the project, this must be a
 blocking question, not a silent skip or a non-blocking warning.
+
+Exception: C/C++ source embedded in another language's build machinery
+(Rcpp's `// [[Rcpp::...]]` attributes / `#include <Rcpp.h>`, Cython,
+MEX) is NOT covered by this check — the embedding language's own tool
+(R's `sourceCpp()`, Cython's build backend, MATLAB's `mex()`) compiles
+it automatically, so the package genuinely CAN run without a
+Makefile/CMakeLists.txt. Blocking the whole pipeline here would be
+wrong; the real risk with this kind of source — compiling with
+different/missing flags than the author's own machine used — is a
+quieter, non-blocking concern, handled by mixed_language_check.py
+instead.
 """
 
 from __future__ import annotations
@@ -22,6 +33,20 @@ from typing import Optional
 from .models import Gap, GapKind
 
 _COMPILED_EXTS = (".f90", ".f95", ".f", ".for", ".c", ".cpp", ".cc", ".cxx")
+
+_RCPP_CPP_USAGE_RE = re.compile(
+    r"//\s*\[\[Rcpp::|#include\s*[<\"]Rcpp\.h[>\"]"
+)
+
+
+def _is_rcpp_embedded_source(p: Path) -> bool:
+    if p.suffix.lower() not in (".cpp", ".cc", ".cxx"):
+        return False
+    try:
+        text = p.read_text(errors="replace")
+    except OSError:
+        return False
+    return bool(_RCPP_CPP_USAGE_RE.search(text))
 
 _BUILD_FILENAMES = (
     "Makefile", "makefile", "GNUmakefile",
@@ -40,12 +65,15 @@ def _rel_parts(p: Path, project_root: Path) -> tuple[str, ...]:
 
 
 def find_compiled_sources(project_root: Path) -> list[Path]:
-    """Every Fortran/C/C++ source file in the project, skipping VCS/cache dirs."""
+    """Every Fortran/C/C++ source file in the project, skipping VCS/cache
+    dirs and Rcpp-embedded sources (see module docstring)."""
     sources: set[Path] = set()
     for ext in _COMPILED_EXTS:
         sources.update(
             p for p in project_root.rglob(f"*{ext}")
-            if p.is_file() and not any(part in _SKIP_DIRS for part in _rel_parts(p, project_root))
+            if p.is_file()
+            and not any(part in _SKIP_DIRS for part in _rel_parts(p, project_root))
+            and not _is_rcpp_embedded_source(p)
         )
     return sorted(sources)
 

@@ -96,3 +96,33 @@ def test_find_build_script_returns_none_when_absent(tmp_path):
     (tmp_path / "code").mkdir()
     (tmp_path / "code" / "sim.c").write_text("int main() { return 0; }\n")
     assert find_build_script(tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# Rcpp exemption: sourceCpp() is the build step, not blocking
+# ---------------------------------------------------------------------------
+
+
+def test_rcpp_attribute_source_with_no_build_script_not_blocking(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shocks.cpp").write_text(
+        "#include <Rcpp.h>\n"
+        "// [[Rcpp::export]]\n"
+        "double draw() { return 0.0; }\n"
+    )
+    assert check_compiled_language_build(tmp_path) is None
+    assert find_compiled_sources(tmp_path) == []
+
+
+def test_plain_cpp_alongside_rcpp_source_still_blocks(tmp_path):
+    """Rcpp exemption is per-file, not project-wide — a genuinely
+    standalone C++ source with no build artifact still blocks."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shocks.cpp").write_text(
+        "#include <Rcpp.h>\n// [[Rcpp::export]]\ndouble draw() { return 0.0; }\n"
+    )
+    (tmp_path / "src" / "helper.cpp").write_text("int main() { return 0; }\n")
+    gap = check_compiled_language_build(tmp_path)
+    assert gap is not None
+    assert "helper.cpp" in (gap.note or "")
+    assert "shocks.cpp" not in (gap.note or "")
