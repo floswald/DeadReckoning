@@ -34,7 +34,7 @@ before any native run, before any crash:
      src/Makevars shipped. R's sourceCpp() auto-compiles it with R's
      default toolchain flags — the file's own comment records that the
      author's machine actually built it with a personal ~/.R/Makevars
-     setting PKG_CXXFLAGS = -fopenmp -O3, a flag that lives nowhere in
+     setting PKG_CXXFLAGS = -O3, a flag that lives nowhere in
      this package. This does NOT block the pipeline (sourceCpp() IS a
      real build step — compile_check.py now exempts Rcpp-embedded
      sources from the blocking "no build script" gap it raises for

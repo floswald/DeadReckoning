@@ -61,3 +61,10 @@ def test_fortran_project_blocks_then_compiles_and_runs_after_answer():
         f"native run failed:\n{result2.native_run.stderr if result2.native_run else 'no run'}"
     )
     assert (result2.working_copy / "result.txt").read_text().strip() == "55.00"
+
+    # sort_check runs alongside rng_check/mixed_language_check after CLEAN —
+    # all three must actually execute on a real orchestrator run, not just
+    # be reachable as standalone functions.
+    assert result2.sort_check is not None
+    assert result2.rng_check is not None
+    assert result2.mixed_language_check is not None

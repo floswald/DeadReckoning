@@ -36,7 +36,7 @@ before any native run.
    C++ (`// [[Rcpp::export]]`, `#include <Rcpp.h>`), compiled on the fly
    by R's `sourceCpp()` — there is no `src/Makevars` anywhere in this
    package. The file's own comment records that the author's personal
-   `~/.R/Makevars` sets `PKG_CXXFLAGS = -fopenmp -O3`; that flag lives
+   `~/.R/Makevars` sets `PKG_CXXFLAGS = -O3`; that flag lives
    nowhere in the package itself. `sourceCpp()` auto-compiles with R's
    default flags regardless, so this does not crash — it's a silent
    "might compile differently on a replicator's machine" risk. Caught by

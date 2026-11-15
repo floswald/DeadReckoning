@@ -2,14 +2,13 @@
 // shipped with this package. On the author's own machine, a personal
 // ~/.R/Makevars sets:
 //
-//   PKG_CXXFLAGS = -fopenmp -O3
+//   PKG_CXXFLAGS = -O3
 //
-// to parallelize the accumulation below across cores. That flag lives
-// nowhere in this package -- not in a shipped src/Makevars, not in any
-// sourceCpp() call with explicit flags -- so a replicator's machine
-// compiles this file with R's own default toolchain flags instead (no
-// -fopenmp), silently producing a different compiled binary than the
-// one the author actually ran it with.
+// That flag lives nowhere in this package -- not in a shipped
+// src/Makevars, not in any sourceCpp() call with explicit flags -- so a
+// replicator's machine compiles this file with R's own default
+// toolchain flags instead, producing a different compiled binary than
+// the one the author actually ran it with.
 #include <Rcpp.h>
 using namespace Rcpp;
 

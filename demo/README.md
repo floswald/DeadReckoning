@@ -367,7 +367,7 @@ Three gaps, each its own check, each its own `.md` file:
    `sourceCpp()` auto-compiles it with R's default flags regardless, so
    this doesn't crash — but the file's own comment records the author's
    personal machine actually built it with an unrecorded
-   `-fopenmp -O3`. Non-blocking, same posture as every other check in
+   `-O3`. Non-blocking, same posture as every other check in
    this module.
 3. **RNG-CHECK (existing, extended for this demo)** — `shocks.cpp` calls
    `Rcpp::rnorm()`, which draws from R's own RNG stream, with no

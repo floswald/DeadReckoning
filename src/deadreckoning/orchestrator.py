@@ -28,6 +28,7 @@ from .resolve import ResolveResult, resolve_paths
 from .rng_check import RngCheckResult, run_rng_check_step
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
+from .sort_check import SortCheckResult, run_sort_check_step
 
 
 @dataclass
@@ -46,6 +47,7 @@ class PipelineResult:
     clean: CleanResult | None = None
     rng_check: RngCheckResult | None = None
     mixed_language_check: MixedLanguageCheckResult | None = None
+    sort_check: SortCheckResult | None = None
     deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
@@ -312,6 +314,11 @@ def run_pipeline(
     # step for the compiled part; write MIXED-LANGUAGE-WARNINGS.md
     # (non-blocking)
     result.mixed_language_check = run_mixed_language_check_step(working_copy)
+
+    # SORT-CHECK: flag a Stata sort/gsort with no , stable and no
+    # set sortseed feeding a tie-sensitive by ... : ... _n==1/_n==_N
+    # operation; write SORT-WARNINGS.md (non-blocking)
+    result.sort_check = run_sort_check_step(working_copy)
 
     if skip_docker:
         return result
