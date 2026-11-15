@@ -42,7 +42,7 @@ before any native run.
    "might compile differently on a replicator's machine" risk. Caught by
    the existing `mixed_language_check.py` (`MIXED-LANGUAGE-WARNINGS.md`).
 
-3. **Missing RNG seed** (`src/shocks.cpp:24`, `Rcpp::rnorm(...)`).
+3. **Missing RNG seed** (`src/shocks.cpp:23`, `Rcpp::rnorm(...)`).
    Rcpp's RNG functions draw from R's own RNG stream — the same stream
    `set.seed()` in the calling R script would control — not C++'s
    `std::rand()`/`<random>`. There is no `set.seed()` anywhere in this
