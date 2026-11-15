@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Optional
 
 from .models import RestrictedStatus
 
@@ -91,3 +92,54 @@ def check_restricted(project_root: Path) -> RestrictedStatus:
             )
 
     return RestrictedStatus(is_restricted=False)
+
+
+def confirm_restricted_hit(
+    restricted: RestrictedStatus,
+    *,
+    answer: Optional[bool] = None,
+    _input_fn=input,
+) -> bool:
+    """
+    §4.2 — re-ask the author about a filename-heuristic hit; never trust
+    the heuristic on its own.
+
+    A filename match (``census``, ``psid``, ``nda``, ...) is a *lead*,
+    not proof — plenty of legitimate public-use extracts are named this
+    way. So when the author already said "no" to the up-front question
+    but the scan later finds something suspicious, this asks again,
+    specifically, rather than silently flipping into restricted mode.
+
+    Parameters
+    ----------
+    restricted : RestrictedStatus
+        Result of `check_restricted`. If not `is_restricted`, this is a
+        no-op — there's nothing to confirm.
+    answer : bool | None
+        Pre-supplied answer (CI / `--restricted-override`): True = author
+        confirms this really is restricted; False = confirmed false
+        positive. None = prompt interactively.
+    _input_fn : callable
+        Override for `input()`; used in tests to avoid stdin.
+
+    Returns
+    -------
+    bool
+        True if the data should be treated as restricted (abort), False
+        if the author confirmed this specific hit is not restricted data
+        and the pipeline may proceed.
+    """
+    if not restricted.is_restricted:
+        return False
+
+    if answer is not None:
+        return answer
+
+    prompt = (
+        f"\n[dr] I found something that may indicate restricted data: {restricted.reason}\n"
+        "  This alone isn't proof — plenty of legitimate public-use data is named this way.\n"
+        "  Before I read any data files, please confirm: is this covered by a data use\n"
+        "  agreement, IRB protocol, or NDA? Answer yes/no: "
+    )
+    raw = _input_fn(prompt).strip().lower()
+    return raw in ("y", "yes", "true", "1")

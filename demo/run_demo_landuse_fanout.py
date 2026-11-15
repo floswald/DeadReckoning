@@ -207,6 +207,11 @@ def main(terse: bool = False) -> None:
     if not terse:
         step("CLEAN", "BFS from exhibits back through scripts to flag files nothing reaches (orphans)")
     print(f"  {len(clean.orphans)} orphan(s){' — CLEANUP.md written' if needs_review else ''}")
+    print("  (expected here: CLEAN's dependency walk doesn't yet cross-reference the 6")
+    print("  regenerated plots, the 6 shipped reference/ copies, and the 1 intermediate")
+    print("  FRA_model.dta against the exhibits paper.tex declares, so all 13 land in")
+    print("  CLEANUP.md even though VALIDATE already confirmed the 6 outputs are the")
+    print("  real exhibits. Not a FIDELITY bug — just a gap in CLEAN's matching.)")
 
     banner("What happened")
     print("  Six exhibits, two scripts, one shared input. DETECT, SCAN, RESOLVE, ASK,")

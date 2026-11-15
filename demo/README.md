@@ -1,10 +1,10 @@
 # DeadReckoning presentation demo
 
-Four segments, ~9 minutes total. All drive the real pipeline
+Five segments, ~10 minutes total. All drive the real pipeline
 (`run_pipeline` / `deadreckoning run`), not hand-built objects. The first
 three rig a broken/renamed path that crashes and gets fixed live by an
-LLM; the fourth is the harder case — nothing crashes, the numbers are
-just silently wrong.
+LLM; the fourth and fifth are the harder case — nothing crashes, the
+numbers are just silently wrong.
 
 ## 1. Toy package — `run_demo.py`
 
@@ -138,23 +138,109 @@ flowchart LR
     subgraph A1["Author 1"]
         direction TB
         clean["clean.R"] --> panel["panel.csv"]
-        combine["combine.jl"] --> table["Table 3"]
+        combine1["combine.jl (1st run)"] --> table1["Table 3 (v1 numbers)"]
     end
     subgraph A2["Author 2 (own machine, no git)"]
         direction TB
-        export["export.do"] --> csv["input_data_from_2.csv"]
+        export["export.do"] --> csv1["input_data_from_2.csv (v1)"]
     end
-    panel --> combine
-    csv --> combine
-    table --> accepted["Paper accepted"]
-    accepted -.months pass.-> upgrade["Author 2 upgrades Stata,\nswaps outsheet -> export delimited"]
-    upgrade --> reexport["Silent re-export:\nsame weights, full precision now"]
-    reexport -.drops into shared Dropbox.-> csv2["input_data_from_2.csv\n(overwritten)"]
-    csv2 -.author 1 reruns later.-> wrong["Table 3 regenerated,\nno longer matches the PDF"]
+    panel --> combine1
+    csv1 --> combine1
+    table1 --> accepted["Paper accepted (still carries v1 numbers)"]
 
-    style upgrade fill:#7a2e2e,color:#fff
+    csv1 -.->|"author 2 upgrades Stata and reruns export.do"| reexport["csv overwritten with v2 (full precision; combine.jl NOT rerun)"]
+    reexport -.->|"happens before acceptance"| accepted
+
+    accepted -.->|"later, author 1 reruns to check reproducibility"| combine2["combine.jl (rerun)"]
+    panel --> combine2
+    reexport --> combine2
+    combine2 --> wrong["Table 3 regenerated (v2 numbers), no longer matches the PDF"]
+
     style reexport fill:#7a2e2e,color:#fff
     style wrong fill:#7a2e2e,color:#fff
+```
+
+Same diagram, top-down instead of left-right — narrower, fits a 16:9
+slide panel better than the wide version above (keep both; this one is
+for slides):
+
+```mermaid
+flowchart TD
+    subgraph A1["Author 1"]
+        clean["clean.R"] --> panel["panel.csv"]
+    end
+    subgraph A2["Author 2 (own machine, no git)"]
+        export["export.do"] --> csv1["input_data_from_2.csv (v1)"]
+    end
+
+    panel --> combine1["combine.jl (1st run)"]
+    csv1 --> combine1
+    combine1 --> table1["Table 3 (v1 numbers)"]
+    table1 --> accepted["Paper accepted (still carries v1 numbers)"]
+
+    csv1 -.->|"author 2 upgrades Stata, reruns export.do"| reexport["csv overwritten with v2 (combine.jl NOT rerun)"]
+    reexport -.->|"happens before acceptance"| accepted
+
+    accepted -.->|"later, author 1 reruns"| combine2["combine.jl (rerun)"]
+    panel --> combine2
+    reexport --> combine2
+    combine2 --> wrong["Table 3 regenerated (v2), mismatches the PDF"]
+
+    style reexport fill:#7a2e2e,color:#fff
+    style wrong fill:#7a2e2e,color:#fff
+```
+
+Third variant: same story, compressed to a literal timeline — dates
+down the left border as a continuous vertical arrow, events down the
+right, so the real multi-year gap between "paper accepted" and "nobody
+notices" is the point of the picture, not an afterthought (keep this
+one too; narrowest of the three, built for a slide corner):
+
+```mermaid
+%%{init: {'flowchart': {'wrappingWidth': 300, 'nodeSpacing': 6, 'rankSpacing': 10, 'padding': 3}}}%%
+flowchart TD
+    subgraph R1[" "]
+        direction LR
+        t1(["2024-01-10"]) --- e1["combine.jl #1 -> Table 3 (v1)"]
+    end
+    subgraph R2[" "]
+        direction LR
+        t2(["2024-03-05"]) --- e2["author 2 re-exports csv v2, no rerun"]
+    end
+    subgraph R3[" "]
+        direction LR
+        t3(["2024-06-01"]) --- e3["paper accepted (v1 numbers)"]
+    end
+    subgraph R4[" "]
+        direction LR
+        t4(["2026"]) --- e4["rerun -> Table 3 (v2), mismatch"]
+    end
+
+    t1 --> t2 --> t3 -.->|"~2 yrs, forgotten"| t4
+    e1 --> e2 --> e3 -.-> e4
+
+    style t4 fill:#7a2e2e,color:#fff
+    style e2 fill:#7a2e2e,color:#fff
+    style e4 fill:#7a2e2e,color:#fff
+```
+
+Fourth variant, different technology — hand-written SVG instead of
+Mermaid (`demo/make_coauthor_drift_timeline.py` generates
+`demo/coauthor_drift_timeline.svg`). Mermaid's flowchart engine gives
+no control over a real axis/tick visual, wraps node labels at a fixed
+pixel width regardless of content, and has no notion of "one column per
+actor" — the wrong tool once the ask is specifically "an arrow down the
+left with tick marks at dates, and I need to see who did what." This one
+draws a literal timeline: a continuous vertical arrow with tick marks at
+each real date, event boxes laid out in three columns (time / Author 1 /
+Author 2 — a colored stripe and header per author make it unambiguous
+whose action each box is), an explicit axis-break glyph where the long
+gap is compressed, and red fill marking where it silently went wrong:
+
+![Coauthor drift timeline](coauthor_drift_timeline.svg)
+
+```bash
+python3 demo/make_coauthor_drift_timeline.py   # regenerate after editing dates/labels
 ```
 
 `code/clean.R` (author 1) writes `data/panel.csv`. Author 2's
@@ -164,18 +250,21 @@ region-weight file. `code/combine.jl` (author 1) reads both and writes
 the paper's actual Table 3: a weighted average of regional revenue.
 
 The rig: author 2's original `.do` file used `outsheet`, which (with no
-display format ever set) truncates exported numbers to 2 decimals.
-Months after the paper is accepted, author 2 upgrades Stata and
-modernizes the script to `export delimited` — the recommended
-replacement since Stata 13 — still with no display format set, so the
-same underlying weights now export at full double precision instead of
-2 decimals. Same data, same logic, just a different command's default.
-Confirmed, not invented:
+display format ever set) truncates exported numbers to 2 decimals. At
+some point *before* the paper is accepted, author 2 upgrades their
+Stata version and modernizes the script to `export delimited` — the
+recommended replacement since Stata 13 — still with no display format
+set, so the same underlying weights now export at full double precision
+instead of 2 decimals. Same data, same logic, just a different
+command's default. Confirmed, not invented:
 [statalist.org/.../1577196](https://www.statalist.org/forums/forum/general-stata-discussion/general/1577196-export-excel-and-decimal-places),
 [stata.com/statalist/2011-01/msg00310](https://www.stata.com/statalist/archive/2011-01/msg00310.html),
 [stata.com/statalist/2010-12/msg00903](https://www.stata.com/statalist/archive/2010-12/msg00903.html).
-Author 2 drops the re-exported csv into the shared Dropbox "to tidy up."
-Nobody reruns the paper.
+Author 2 reruns the script and drops the re-exported csv into the
+shared Dropbox "to tidy up." But the downstream consumer of that file,
+`combine.jl`, is never rerun — so what actually goes into the accepted
+paper is `combine.jl`'s old output, already out of sync with the csv
+sitting on disk, well before anyone submits anything.
 
 ```bash
 python3 demo/run_demo_coauthor_drift.py           # full step-by-step narration
@@ -202,10 +291,53 @@ No LLM fix-loop act in this demo — there's nothing to fix automatically;
 the point is surfacing the divergence and naming a suspect for the
 author to go ask about. No Docker, no API key needed.
 
+The "correct" fix for all of this is putting the whole pipeline under
+git with CI checking every exhibit on every push — but that's not a
+realistic ask for most social scientists. This check and its mtime
+fallback exist for the world as it actually is: no git, no CI, just a
+shared Dropbox folder.
+
+## 5. Fan-out fidelity — `demo/run_demo_landuse_fanout.py`
+
+Same silent-drift mechanism as segment 4, but at scale: one real shared
+data input, two real Stata scripts, six real exhibits — and only three
+of the six are actually stale. Extends `demo/landuse_real/` (untouched
+by this demo) with a second script, `code/stata/generatethetas.do`,
+which reads the same `data/raw/FRA_base.dta` as `code/stata/figure1.do`.
+
+The rig: a provider restatement of two 1950 observations in
+`FRA_base.dta`. `generatethetas.do` was rerun after the restatement, so
+its three reference exhibits (`figureA3.pdf`, `figure7.pdf`,
+`figureA4.pdf`) already reflect the current data. `figure1.do` was
+believed unaffected and never rerun, so its three reference exhibits
+(`figure1.pdf`, `figureA2a.pdf`, `figureA2b.pdf`) still reflect the
+pre-restatement data. Every script still exits 0, every exhibit still
+lands on disk — nothing crashes.
+
+```bash
+python3 demo/run_demo_landuse_fanout.py           # full step-by-step narration
+python3 demo/run_demo_landuse_fanout.py --terse   # one line per step
+```
+
+Shows: DETECT, SCAN, RESOLVE, ASK, FIX, RUN, and VALIDATE all pass
+clean on all six exhibits. **FIDELITY** is the only check that tells the
+three `figure1.do` exhibits apart from the three `generatethetas.do`
+exhibits, and it converges all three mismatches on the same suspect,
+`data/raw/FRA_base.dta`, without ever flagging the three that are
+actually fine. See `demo/landuse_fanout/README.md` for exactly how the
+reference set was built and verified.
+
+No LLM fix-loop act in this demo either — same as segment 4, there's
+nothing to fix automatically, only a divergence to surface and a
+suspect to name. No Docker, no `ANTHROPIC_API_KEY` needed.
+
+Needs a local Stata install for the native RUN step, same as segment 3.
+
 ## Notes
 
-- None of the four scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
-  `demo/landuse_real/`, or `demo/coauthor_drift/` directly — the pipeline
-  always works on a temp copy, printed as "Working copy" in the output.
-- All four scripts write `DATA-EXHIBIT-MAP.md` into that working copy
+- None of the five scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
+  `demo/landuse_real/`, `demo/coauthor_drift/`, or `demo/landuse_fanout/`
+  directly — the pipeline always works on a temp copy, printed as
+  "Working copy" in the output.
+- All five scripts write `DATA-EXHIBIT-MAP.md` into that working copy
   (the generated data availability statement).

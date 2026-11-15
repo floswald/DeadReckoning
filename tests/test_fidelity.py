@@ -125,6 +125,41 @@ def test_diverges_and_localizes_via_git_when_repo_present(chain_project):
     assert "Author One" in suspect.detail
 
 
+def test_nondeterminism_note_absent_for_clean_mismatch(chain_project):
+    """No wall-clock/PID/tempdir call in the producing script — note is None,
+    same as before this field existed."""
+    graph = build_graph(chain_project)
+    reference = (chain_project / "output" / "Table3.tex").read_bytes()
+    (chain_project / "output" / "Table3.tex").write_text("regenerated: 159.87")
+
+    result = check_exhibit_fidelity(chain_project, graph, Path("output/Table3.tex"), reference)
+
+    assert not result.matches_reference
+    assert result.nondeterminism_note is None
+
+
+def test_nondeterminism_note_set_when_producing_script_writes_wallclock(chain_project):
+    """combine.jl calls now() — a mismatch here may be expected, not drift."""
+    (chain_project / "code" / "combine.jl").write_text(
+        'using CSV, Dates\n'
+        'panel = CSV.read("panel.csv")\n'
+        'weights = CSV.read("input_data_from_2.csv")\n'
+        'open("output/Table3.tex", "w") do io\n'
+        '    write(io, string(now()))\n'
+        'end\n'
+    )
+    graph = build_graph(chain_project)
+    reference = (chain_project / "output" / "Table3.tex").read_bytes()
+    (chain_project / "output" / "Table3.tex").write_text("regenerated: 159.87")
+
+    result = check_exhibit_fidelity(chain_project, graph, Path("output/Table3.tex"), reference)
+
+    assert not result.matches_reference
+    assert result.nondeterminism_note is not None
+    assert "combine.jl" in result.nondeterminism_note
+    assert "now(" in result.nondeterminism_note
+
+
 def test_missing_exhibit_file_reports_mismatch(chain_project):
     graph = build_graph(chain_project)
     reference = b"published: 160.00"

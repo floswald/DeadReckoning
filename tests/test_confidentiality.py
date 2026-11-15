@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from deadreckoning.confidentiality import check_restricted
+from deadreckoning.confidentiality import check_restricted, confirm_restricted_hit
+from deadreckoning.models import RestrictedStatus
 
 
 def _touch(root: Path, relpath: str) -> Path:
@@ -86,3 +87,50 @@ def test_clean_project_not_restricted(tmp_path: Path) -> None:
     _touch(tmp_path, "code/analysis.R")
     status = check_restricted(tmp_path)
     assert not status.is_restricted
+
+
+# ---------------------------------------------------------------------------
+# §4.2 — confirm_restricted_hit: a filename match is a lead, not proof.
+# Never trust (or dismiss) it without asking the author specifically.
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_restricted_hit_noop_when_not_restricted() -> None:
+    """Nothing to confirm if the heuristic never fired."""
+    status = RestrictedStatus(is_restricted=False)
+    assert confirm_restricted_hit(status) is False
+
+
+def test_confirm_restricted_hit_pre_supplied_yes() -> None:
+    status = RestrictedStatus(is_restricted=True, reason="census_extract.csv")
+    assert confirm_restricted_hit(status, answer=True) is True
+
+
+def test_confirm_restricted_hit_pre_supplied_no() -> None:
+    """Author confirms this specific hit is a false positive."""
+    status = RestrictedStatus(is_restricted=True, reason="psid_public_use_1997.csv")
+    assert confirm_restricted_hit(status, answer=False) is False
+
+
+def test_confirm_restricted_hit_prompts_interactively_yes() -> None:
+    status = RestrictedStatus(is_restricted=True, reason="nda_data.csv")
+    assert confirm_restricted_hit(status, _input_fn=lambda _: "yes") is True
+
+
+def test_confirm_restricted_hit_prompts_interactively_no() -> None:
+    status = RestrictedStatus(is_restricted=True, reason="census_boundaries.shp")
+    assert confirm_restricted_hit(status, _input_fn=lambda _: "no") is False
+
+
+def test_confirm_restricted_hit_prompt_mentions_reason() -> None:
+    """The re-ask must be specific about what it found, not a generic warning."""
+    status = RestrictedStatus(is_restricted=True, reason="Filename matches: 'census_tracts.csv'")
+    seen_prompts: list[str] = []
+
+    def _capture(prompt: str) -> str:
+        seen_prompts.append(prompt)
+        return "no"
+
+    confirm_restricted_hit(status, _input_fn=_capture)
+    assert len(seen_prompts) == 1
+    assert "census_tracts.csv" in seen_prompts[0]

@@ -55,23 +55,26 @@ Useful flags:
 DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native) → CLEAN → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
 ```
 
-| Step | What it does |
-|------|--------------|
-| **DETECT** | Confidentiality gate — restricted-data check, before any copy is made |
-| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps; writes `DATA-EXHIBIT-MAP.md` |
-| **CAPTURE** | Infer language / packages / pin-method from lockfiles or a static scan |
-| **SCAN** | Extract external paths, package references, and secrets from every script |
-| **RESOLVE** | Rewrite external/absolute paths to project-relative ones |
-| **ASK** | Surface gaps/contradictions that need the author; writes `QUESTIONS.md` (halts here only if a question is blocking) |
-| **FIX** | Deterministic fixes (no LLM) — e.g. a script writing to the wrong output path |
-| **LLM-FIX** | Only runs if the native run fails — Claude proposes a fix from the stderr |
-| **RUN (native)** | Actually execute the master script |
-| **VALIDATE (native)** | Check every exhibit the script claims to produce actually landed on disk |
-| **CLEAN** | Flag files unreachable from any exhibit; writes `CLEANUP.md` (non-blocking) |
-| **GENERATE** | Write the Dockerfile (skipped by default — pass `--no-skip-docker`) |
-| **BUILD (docker)** | Build the image |
-| **VALIDATE (docker)** | Re-run and validate inside the container |
-| **DELIVER** | Write the README template + `DELIVERY_REPORT.md` |
+| Step | What it does | Tech used |
+|------|--------------|-----------|
+| **DETECT** | Confidentiality gate — restricted-data check, before any copy is made | `re` filename/pattern matching over paths (`confidentiality.py`) — no LLM, no file contents read |
+| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps; writes `DATA-EXHIBIT-MAP.md` | Regex only (`graph.py`) — per-language write-call patterns, LaTeX include/macro regex, hand-written brace-matcher for nested braces. No AST, no LLM. Exhibit↔script matching is literal path-string comparison after macro expansion |
+| **CAPTURE** | Infer language / packages / pin-method from lockfiles or a static scan | `subprocess` (`Rscript -e sessionInfo()`, `pip freeze`, `Pkg.status()`, `creturn list`, etc.) + `re`/`json` parsing of lockfiles (`capture.py`) |
+| **SCAN** | Extract external paths, package references, and secrets from every script | `re` (`scan.py`) |
+| **RESOLVE** | Rewrite external/absolute paths to project-relative ones | `re`, `csv` (`resolve.py`) |
+| **ASK** | Surface gaps/contradictions that need the author; writes `QUESTIONS.md` (halts here only if a question is blocking) | `re` gap→question mapping (`ask.py`) — no LLM |
+| **FIX** | Deterministic fixes (no LLM) — e.g. a script writing to the wrong output path | `re`, dispatcher `Protocol` (`fix_loop.py`) |
+| **LLM-FIX** | Only runs if the native run fails — Claude proposes a fix from the stderr | **`anthropic` SDK** (`llm_dispatcher.py`) — the only step in the pipeline that calls a live LLM; a tool-calling loop scoped to the specific stderr, not the whole project |
+| **RUN (native)** | Actually execute the master script | `subprocess` dispatch by file extension to Rscript/Stata/python/julia/MATLAB (`runner.py`, `stata.py`, `matlab.py`) |
+| **VALIDATE (native)** | Check every exhibit the script claims to produce actually landed on disk | File-existence check against the dependency graph (`runner.py`) |
+| **FIDELITY** *(available, not yet wired into the default run — see below)* | Compare a regenerated exhibit's bytes against a reference snapshot (e.g. the exhibit as it appeared in the published PDF); on mismatch, walks the dependency graph to name the upstream data file(s) most likely responsible | `hashlib` content hash + graph traversal (`check_exhibit_fidelity()` in `runner.py`) — `git log --follow` for provenance if the project is a git repo, filesystem mtime as a lower-confidence fallback otherwise |
+| **CLEAN** | Flag files unreachable from any exhibit; writes `CLEANUP.md` (non-blocking) | BFS over the graph, `shutil` for archive/delete (`clean.py`) |
+| **GENERATE** | Write the Dockerfile (skipped by default — pass `--no-skip-docker`) | String templating (`docker.py`) |
+| **BUILD (docker)** | Build the image | `subprocess.run(["docker", "build", ...])` (`docker.py`) |
+| **VALIDATE (docker)** | Re-run and validate inside the container | `subprocess.run(["docker", "run", ...])` (`docker.py`) |
+| **DELIVER** | Write the README template + `DELIVERY_REPORT.md` | `zipfile`, template rendering (`deliver.py`, `provenance.py`) |
+
+**VALIDATE only checks that an exhibit exists — not that its content is still what was published.** A run can exit 0, every exhibit can be present on disk, and the numbers inside can still be wrong, if the pipeline silently drifted between acceptance and replication (see [`demo/`](demo/)'s fourth walkthrough for a real example: nothing crashes, nothing fails, and the only thing that catches it is a content comparison against a reference). `check_exhibit_fidelity()` is the function that closes that gap, and it works and is tested today — it just isn't called by `run_pipeline`/`deadreckoning run` yet, only by that demo script directly. Wiring it into the default pipeline (what reference to compare against, and whether a mismatch should block or just warn) is tracked in [§11](#11-open-questions).
 
 `--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — the Docker-phase steps (CLEAN onward) aren't individually stoppable yet, since they only run when Docker isn't skipped.
 
@@ -82,7 +85,7 @@ deadreckoning graph /path/to/your/project   # dependency graph + gap report
 deadreckoning detect-stata                  # is Stata installed and on PATH?
 ```
 
-**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has two runnable, narrated walkthroughs — a rigged toy paper and a slice of a real published package — that show every pipeline step live, including the LLM catching and fixing a real broken path. See [`demo/README.md`](demo/README.md).
+**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has five runnable, narrated walkthroughs — a rigged toy paper, two slices of real published packages, and two cases where nothing crashes at all. The first three show every pipeline step live, including the LLM catching and fixing a real broken path; the fourth shows a run that passes DETECT through VALIDATE cleanly and is still wrong, and how FIDELITY catches it; the fifth scales that up to one shared input feeding six real exhibits, only three of which are actually stale, and shows FIDELITY telling them apart. See [`demo/README.md`](demo/README.md).
 
 ---
 
@@ -98,15 +101,15 @@ Most economics papers take years to write. Code accumulates across multiple mach
 
 Then the paper is accepted. The journal asks for a replication package. The author sits down to verify that everything still runs — and discovers it does not. Scripts reference files that moved. Software versions changed. Some figures exist on disk but nobody is sure which script produced them. A table in the paper cannot be traced to any piece of code.
 
-**This is the moment this tool is designed for.** Not the ideal scenario where an author has been maintaining a clean, reproducible project all along — that author doesn't need this tool. This is for the other 95%: the author who has a paper, has code, has results, and now needs to reconstruct the computational pipeline that produced them.
+**This is the moment this tool is designed for.** Not the ideal scenario where an author has been maintaining a clean, reproducible project all along — that author doesn't need this tool. This is for the author who has a paper, has code, has results, and now needs to reconstruct the computational pipeline that produced them.
 
-The first and primary job of this agent is to help the author get their project into a state where all outputs can be regenerated from a clean start. Docker is what that state is packaged into at the end — so that a replicator at a journal can verify the results without installing the author's exact software stack by hand. But Docker is the last step, not the point. A Docker image built on top of a broken or incomplete pipeline is still broken. The agent works on the pipeline first.
+The first and primary job of this agent is to help the author get their project into a state where all outputs can be regenerated from a clean start. Docker is what that state is packaged into at the end — so that a replicator at a journal can verify the results without installing the author's exact software stack by hand. 
 
 ### Why this is hard to do by hand
 
 The author knows the project better than anyone, but faces a specific problem: the work was done incrementally over years, and the decisions made along the way — which version of a package was installed, where the data file was saved, which script produced a given figure — were never written down because they seemed obvious at the time. Recovering that information requires cross-referencing file timestamps, code history, output files, and the paper itself simultaneously. This is tedious and error-prone for a person. It is tractable for a tool that can read all of these sources at once and ask focused questions about what it cannot determine automatically.
 
-The naive version of this tool — "generate a Dockerfile from a project" — solves perhaps 10% of the real problem. Writing `FROM rocker/r-ver`, `COPY . .`, and an entrypoint is already handled by static tools. What is actually hard is reconstructing a working pipeline from a messy, undocumented project, then verifying it runs, then fixing what breaks — a back-and-forth process that requires reading the project, asking questions, and trying things repeatedly.
+What is actually hard about this problem is reconstructing a working pipeline from a messy, undocumented project, then verifying it runs, then fixing what breaks — a back-and-forth process that requires reading the project, asking questions, and trying things repeatedly.
 
 ---
 
@@ -356,18 +359,19 @@ The pipeline has two distinct phases separated by the native validation gate. **
 ### Phase 3: Validate natively
 
 8. **VALIDATE (native)** — delete all outputs a final time and run the full master script natively. Every exhibit in the paper must be regenerated. A run that finds pre-existing outputs and exits without doing anything is not a success. Measure and record wall-clock runtime. This is the gate: the replication package is now a working deliverable independent of Docker.
+9. **FIDELITY** *(available; not yet called by this pipeline — see §11)* — existence isn't correctness. Two coauthors, no version control, a silently re-exported CSV: every step above can pass clean — exit 0, every exhibit present — while the regenerated numbers no longer match what was published. `check_exhibit_fidelity()` compares a regenerated exhibit's bytes against a reference snapshot and, on mismatch, walks the dependency graph to name the upstream file(s) most likely responsible, backed by `git log --follow` where the project is a git repo and a filesystem-mtime fallback (a lead, not proof) where it isn't. See `demo/run_demo_coauthor_drift.py` for the single-exhibit walkthrough, or `demo/run_demo_landuse_fanout.py` for the same check discriminating across six real exhibits sharing one upstream input.
 
 ### Phase 4: Clean and containerize
 
-9. **CLEAN** — show the author all files not reached by the dependency graph (abandoned scripts, superseded data, figures cut from the draft) and offer three choices per group: delete, archive, or keep with a documented reason. See Section 7.6.
-10. **GENERATE** — write the Docker setup: `Dockerfile` (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume at run time + `.dockerignore`. Also write the computational requirements README (AEA format), with the runtime from step 8 inserted automatically.
-11. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements (default `linux/amd64` for Stata/MATLAB; see Section 7.7). The image is intentionally small: operating system + language runtime + packages, nothing else.
-12. **VALIDATE (container)** — delete all outputs and run the master script inside the container with the replication package folder attached as a volume. Must reproduce every exhibit, same as the native run. Measure and record container runtime separately. Both native and container runtimes go into the README.
-13. **FIX loop (Docker)** — if the container run fails, read the error; adjust the Dockerfile (a missing system library, a wrong base image tag, an architecture mismatch). Rebuild and rerun. The native pipeline is already fixed; these errors are environment packaging problems, not pipeline problems.
+10. **CLEAN** — show the author all files not reached by the dependency graph (abandoned scripts, superseded data, figures cut from the draft) and offer three choices per group: delete, archive, or keep with a documented reason. See Section 7.6.
+11. **GENERATE** — write the Docker setup: `Dockerfile` (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume at run time + `.dockerignore`. Also write the computational requirements README (AEA format), with the runtime from step 8 inserted automatically.
+12. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements (default `linux/amd64` for Stata/MATLAB; see Section 7.7). The image is intentionally small: operating system + language runtime + packages, nothing else.
+13. **VALIDATE (container)** — delete all outputs and run the master script inside the container with the replication package folder attached as a volume. Must reproduce every exhibit, same as the native run. Measure and record container runtime separately. Both native and container runtimes go into the README.
+14. **FIX loop (Docker)** — if the container run fails, read the error; adjust the Dockerfile (a missing system library, a wrong base image tag, an architecture mismatch). Rebuild and rerun. The native pipeline is already fixed; these errors are environment packaging problems, not pipeline problems.
 
 ### Phase 5: Deliver
 
-14. **DELIVER** — hand the author a complete replication package (Section 9): the cleaned project directory, the README, `data-manifest.csv`, `AGENT_REPORT.md`, and the Docker setup. The report states plainly what was recovered automatically, what the author confirmed, what couldn't be resolved, and what the runtime was. Every decision is explained in plain language so the author can respond to a reviewer who asks about it.
+15. **DELIVER** — hand the author a complete replication package (Section 9): the cleaned project directory, the README, `data-manifest.csv`, `AGENT_REPORT.md`, and the Docker setup. The report states plainly what was recovered automatically, what the author confirmed, what couldn't be resolved, and what the runtime was. Every decision is explained in plain language so the author can respond to a reviewer who asks about it.
 
 ---
 
@@ -630,5 +634,5 @@ The agent produces two things: a **replication package** (the main output, works
 
 - How aggressively to fix versions automatically vs. show the choices to the author?
 - Caching strategy for repeated builds during the fix loop (build times with x86 emulation and Stata are slow).
-- How to check that outputs are *correct*, not just that the run completed without error?
+- How to check that outputs are *correct*, not just that the run completed without error? Partially answered — `check_exhibit_fidelity()` exists and is tested (§6, Phase 3), but isn't called by `run_pipeline` yet. Open: what reference snapshot to compare against by default (the delivered package has no "last known good" copy unless the author supplies one), and whether a mismatch should block delivery or just warn.
 - Where does the image go after it is built — out of scope for v1, but the question will come up.

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import DataFile, DependencyGraph
+from .nondeterminism import find_nondeterministic_calls
 
 
 @dataclass
@@ -32,7 +33,14 @@ class ValidationResult:
         return len(self.missing) == 0
 
 
-def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunResult:
+_COMPILED_EXTS = (".f90", ".f95", ".f", ".for", ".c", ".cpp", ".cc", ".cxx")
+
+
+def run_natively(
+    project_root: Path,
+    master_script: str = "code/run.R",
+    compile_command: str | None = None,
+) -> RunResult:
     """
     Dispatch to the right runner based on script extension.
 
@@ -41,6 +49,10 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
     .jl      → julia
     .py      → python
     .sh      → bash (a multi-language orchestrator — see _run_shell)
+    .f90/.f95/.f/.for, .c, .cpp/.cc/.cxx → compile_command (see _run_compiled;
+        a Fortran/C/C++ source file isn't directly executable the way the
+        above are — ASK's compiled_language_no_build_script question is
+        what supplies compile_command when no build script was found)
     """
     ext = Path(master_script).suffix.lower()
     if ext in (".r",):
@@ -55,10 +67,45 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
         return _run_matlab(project_root, master_script)
     if ext == ".sh":
         return _run_shell(project_root, master_script)
+    if ext in _COMPILED_EXTS:
+        return _run_compiled(project_root, master_script, compile_command)
     return RunResult(
         returncode=1,
         stdout="",
         stderr=f"Unsupported script extension '{ext}' for {master_script}",
+    )
+
+
+def _run_compiled(
+    project_root: Path, master_script: str, compile_command: str | None
+) -> RunResult:
+    """Fortran/C/C++ source can't be executed directly — `compile_command`
+    (the author's answer to ASK's compiled_language_no_build_script
+    question, or a discovered build script's invocation) is shelled out to
+    compile AND run it. No compile_command reaching here is a logic error
+    upstream: ASK should have blocked the pipeline first."""
+    if not compile_command:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=(
+                f"No build script found and no compile command supplied for "
+                f"compiled-language source {master_script!r}. This should "
+                "have been caught by ASK (compiled_language_no_build_script) "
+                "before reaching RUN."
+            ),
+        )
+    result = subprocess.run(
+        compile_command,
+        shell=True,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    return RunResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
     )
 
 
@@ -215,6 +262,10 @@ class FidelityResult:
     reference_hash: str | None = None
     regenerated_hash: str | None = None
     suspects: list[SuspectFile] = field(default_factory=list)
+    # Set on mismatch when the producing script writes the wall clock, a
+    # PID, or a tempdir path — a byte mismatch here may be expected, not
+    # drift. See nondeterminism.py / Action Point 3 in compare.md.
+    nondeterminism_note: str | None = None
 
 
 def _sha256(data: bytes) -> str:
@@ -264,6 +315,24 @@ def check_exhibit_fidelity(
         reference_hash=reference_hash,
         regenerated_hash=regenerated_hash,
         suspects=_localize_divergence(project_root, graph, exhibit_tex_path),
+        nondeterminism_note=_nondeterminism_note(graph, exhibit_tex_path),
+    )
+
+
+def _nondeterminism_note(graph: DependencyGraph, exhibit_tex_path: Path) -> str | None:
+    """None unless the script producing this exhibit writes the wall clock,
+    a PID, or a tempdir path — in which case name the call(s) found."""
+    exhibit = next((e for e in graph.exhibits if e.tex_path == exhibit_tex_path), None)
+    if exhibit is None or exhibit.source is None:
+        return None
+    calls = find_nondeterministic_calls(exhibit.source.script)
+    if not calls:
+        return None
+    joined = ", ".join(calls)
+    return (
+        f"{exhibit.source.script.name} calls {joined} — this exhibit may "
+        "legitimately differ byte-for-byte on every run (a timestamp/PID/"
+        "tempdir path), independent of whether the underlying numbers match."
     )
 
 

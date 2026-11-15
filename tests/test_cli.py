@@ -26,6 +26,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         stata_license=None,
         answers_file=None,
         skip_intake=True,
+        restricted_override=None,
         stop_after=None,
         json=True,
     )
@@ -72,6 +73,65 @@ def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, ca
     assert "restricted" in payload["error"].lower()
     assert payload["working_copy"] == str(tmp_path)  # sentinel — no copy made
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# §4.2 — a filename hit must be re-asked, never trusted (or dismissed) alone.
+# ---------------------------------------------------------------------------
+
+
+def test_collect_intake_filename_hit_override_no_clears_it(tmp_path: Path) -> None:
+    """--restricted-override no: author confirms this specific hit (a
+    public-use `psid`-named file, say) is not actually restricted data —
+    the pipeline must be allowed to proceed, not aborted on the filename
+    match alone."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "psid_public_use_1997.csv").write_bytes(b"")
+
+    args = _make_args(project=str(tmp_path), skip_intake=True, restricted_override="no")
+    intake = _collect_intake(args)
+
+    assert intake is not None
+    assert intake.restricted_override_safe is True
+    assert not intake.restricted_data
+
+
+def test_collect_intake_filename_hit_override_yes_confirms_restricted(tmp_path: Path) -> None:
+    """--restricted-override yes: author confirms the hit really is
+    restricted data — must gate the pipeline same as the up-front answer."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "census_microdata.csv").write_bytes(b"")
+
+    args = _make_args(project=str(tmp_path), skip_intake=True, restricted_override="yes")
+    intake = _collect_intake(args)
+
+    assert intake is not None
+    assert intake.restricted_data is True
+
+
+def test_collect_intake_filename_hit_no_override_no_tty_fails_safe(tmp_path: Path) -> None:
+    """No TTY, no --restricted-override — nothing re-asked. Must fail safe
+    (restricted_data=True), same behaviour as before this existed."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "census_microdata.csv").write_bytes(b"")
+
+    args = _make_args(project=str(tmp_path), skip_intake=True, restricted_override=None)
+    intake = _collect_intake(args)
+
+    assert intake is not None
+    assert intake.restricted_data is True
+    assert not intake.restricted_override_safe
+
+
+def test_collect_intake_no_filename_hit_untouched(tmp_path: Path) -> None:
+    """Clean project, --skip-intake — nothing to re-ask, intake stays None."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "wages.csv").write_bytes(b"")
+
+    args = _make_args(project=str(tmp_path), skip_intake=True)
+    intake = _collect_intake(args)
+
+    assert intake is None
 
 
 @pytest.mark.local

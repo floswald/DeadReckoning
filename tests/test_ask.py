@@ -136,6 +136,63 @@ def test_question_for_missing_from_disk():
     assert any(q.gap_kind == GapKind.exhibit_missing_from_disk.value for q in qs)
 
 
+def test_question_for_missing_input():
+    graph = _graph_with_gap(GapKind.input_missing_from_disk, exhibit="data/ghost.csv")
+    qs = identify_questions(graph)
+    assert any(q.gap_kind == GapKind.input_missing_from_disk.value for q in qs)
+
+
+def test_missing_input_is_blocking():
+    graph = _graph_with_gap(GapKind.input_missing_from_disk, exhibit="data/ghost.csv")
+    qs = identify_questions(graph)
+    responses = [AuthorResponse(exhibit=q.exhibit, answer="") for q in qs]
+    assert not all_blocking_answered(qs, responses)
+    answered = [AuthorResponse(exhibit=q.exhibit, answer="restricted, author has it") for q in qs]
+    assert all_blocking_answered(qs, answered)
+
+
+def test_apply_responses_records_missing_input_answer():
+    graph = _graph_with_gap(GapKind.input_missing_from_disk, exhibit="data/ghost.csv")
+    qs = identify_questions(graph)
+    responses = [AuthorResponse(exhibit=q.exhibit, answer="Restricted — contact author.") for q in qs]
+    updated_graph, _ = apply_responses(graph, _high_conf_env(), qs, responses)
+    gap = next(g for g in updated_graph.gaps if g.kind == GapKind.input_missing_from_disk)
+    assert "Restricted" in (gap.note or "")
+
+
+def test_question_for_compiled_language_no_build_script():
+    gap = Gap(kind=GapKind.compiled_language_no_build_script, exhibit=None,
+              location="compiled_language_build", note="found code/sim.f90")
+    graph = DependencyGraph(project_root=_ROOT, gaps=[gap])
+    qs = identify_questions(graph)
+    assert any(q.gap_kind == GapKind.compiled_language_no_build_script.value for q in qs)
+
+
+def test_compiled_language_question_is_blocking():
+    gap = Gap(kind=GapKind.compiled_language_no_build_script, exhibit=None,
+              location="compiled_language_build", note="found code/sim.f90")
+    graph = DependencyGraph(project_root=_ROOT, gaps=[gap])
+    qs = identify_questions(graph)
+    unanswered = [AuthorResponse(exhibit=q.exhibit, answer="") for q in qs]
+    assert not all_blocking_answered(qs, unanswered)
+    answered = [
+        AuthorResponse(exhibit=q.exhibit, answer="gfortran code/sim.f90 -o code/sim && ./code/sim")
+        for q in qs
+    ]
+    assert all_blocking_answered(qs, answered)
+
+
+def test_apply_responses_sets_compile_command_on_env_spec():
+    gap = Gap(kind=GapKind.compiled_language_no_build_script, exhibit=None,
+              location="compiled_language_build", note="found code/sim.f90")
+    graph = DependencyGraph(project_root=_ROOT, gaps=[gap])
+    qs = identify_questions(graph)
+    command = "gfortran code/sim.f90 -o code/sim && ./code/sim"
+    responses = [AuthorResponse(exhibit=q.exhibit, answer=command) for q in qs]
+    _, updated_env = apply_responses(graph, _high_conf_env(), qs, responses)
+    assert updated_env.compile_command == command
+
+
 def test_no_duplicate_for_same_exhibit():
     gap1 = Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("figures/fig1.pdf"))
     gap2 = Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("figures/fig1.pdf"))
@@ -422,3 +479,104 @@ def test_run_ask_env_date_applied_on_second_run(tmp_path):
     (tmp_path / "QUESTIONS.md").write_text(text)
     _, _, _, updated_env = run_ask_step(tmp_path, graph, env)
     assert updated_env.snapshot_date == "2023-03-01"
+
+
+# ---------------------------------------------------------------------------
+# exhibit_copied_but_no_source_script — a copy/rename edge was found, but
+# its original is unexplained (see graph.py's copy/rename provenance work)
+# ---------------------------------------------------------------------------
+
+
+def test_question_for_copied_but_no_source():
+    graph = _graph_with_gap(GapKind.exhibit_copied_but_no_source_script)
+    qs = identify_questions(graph)
+    assert any(q.gap_kind == GapKind.exhibit_copied_but_no_source_script.value for q in qs)
+
+
+def test_copied_but_no_source_is_blocking(tmp_path):
+    graph = _graph_with_gap(GapKind.exhibit_copied_but_no_source_script)
+    env = _high_conf_env()
+    qa, needs_input, _, _ = run_ask_step(tmp_path, graph, env)
+    assert needs_input is True
+
+
+def test_copied_but_no_source_answer_unblocks(tmp_path):
+    graph = _graph_with_gap(GapKind.exhibit_copied_but_no_source_script, "figures/fig1.pdf")
+    env = _high_conf_env()
+    run_ask_step(tmp_path, graph, env)
+    text = (tmp_path / "QUESTIONS.md").read_text()
+    text = text.replace("> Answer: ", "> Answer: code/plotter.jl line 42")
+    (tmp_path / "QUESTIONS.md").write_text(text)
+    qa, needs_input, updated_graph, _ = run_ask_step(tmp_path, graph, env)
+    assert needs_input is False
+    gap = next(g for g in updated_graph.gaps if g.kind == GapKind.exhibit_copied_but_no_source_script)
+    assert "code/plotter.jl line 42" in (gap.note or "")
+
+
+# ---------------------------------------------------------------------------
+# LLM gap hints — mocked dispatcher, no network. Confirms the hint is
+# clearly labeled and additive, never replacing the deterministic question.
+# ---------------------------------------------------------------------------
+
+
+class _StubHintDispatcher:
+    """Duck-typed GapHintDispatcher — avoids needing a real Anthropic mock
+    client for pure ask.py-wiring tests."""
+    def __init__(self, hint: str | None) -> None:
+        self._hint = hint
+        self.calls: list[GapKind] = []
+
+    def propose_hint(self, gap, graph, project_root):
+        self.calls.append(gap.kind)
+        return self._hint
+
+
+def test_hint_appended_to_context_when_available():
+    graph = _graph_with_gap(GapKind.exhibit_no_source_script)
+    dispatcher = _StubHintDispatcher("Probably code/plot.R line 12 (medium confidence).")
+    qs = identify_questions(graph, hint_dispatcher=dispatcher)
+    q = next(q for q in qs if q.gap_kind == GapKind.exhibit_no_source_script.value)
+    assert "Probably code/plot.R line 12" in (q.context or "")
+    assert "unverified" in (q.context or "").lower()
+    assert "proposed by Claude" in (q.context or "")
+
+
+def test_no_hint_appended_when_dispatcher_returns_none():
+    graph = _graph_with_gap(GapKind.exhibit_no_source_script)
+    dispatcher = _StubHintDispatcher(None)
+    qs = identify_questions(graph, hint_dispatcher=dispatcher)
+    q = next(q for q in qs if q.gap_kind == GapKind.exhibit_no_source_script.value)
+    assert q.context is None  # unchanged from the no-dispatcher baseline
+
+
+def test_no_hint_appended_without_dispatcher():
+    """Baseline: hint_dispatcher=None (default) must behave exactly as
+    before this feature existed — no hint text, no dispatcher call."""
+    graph = _graph_with_gap(GapKind.exhibit_no_source_script)
+    qs = identify_questions(graph)
+    q = next(q for q in qs if q.gap_kind == GapKind.exhibit_no_source_script.value)
+    assert q.context is None
+
+
+def test_hint_dispatcher_called_once_per_blocking_gap():
+    gap1 = Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("fig1.pdf"))
+    gap2 = Gap(kind=GapKind.exhibit_copied_but_no_source_script, exhibit=Path("fig2.pdf"))
+    ex1 = Exhibit(tex_path=Path("fig1.pdf"), exists_on_disk=False, source=None)
+    ex2 = Exhibit(tex_path=Path("fig2.pdf"), exists_on_disk=False, source=None)
+    graph = DependencyGraph(project_root=_ROOT, exhibits=[ex1, ex2], gaps=[gap1, gap2])
+
+    dispatcher = _StubHintDispatcher("a lead")
+    identify_questions(graph, hint_dispatcher=dispatcher)
+    assert dispatcher.calls == [GapKind.exhibit_no_source_script, GapKind.exhibit_copied_but_no_source_script]
+
+
+def test_run_ask_step_default_dispatcher_is_noop_without_api_key(tmp_path, monkeypatch):
+    """run_ask_step's default (no hint_dispatcher passed) must not crash and
+    must not change behavior when there's no ANTHROPIC_API_KEY — the exact
+    environment every other test in this file already runs under."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    graph = _graph_with_gap(GapKind.exhibit_no_source_script)
+    env = _high_conf_env()
+    qa, needs_input, _, _ = run_ask_step(tmp_path, graph, env)
+    assert needs_input is True
+    assert qa.questions[0].context is None

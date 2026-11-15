@@ -322,6 +322,69 @@ def test_matlab_readtable_detected(tmp_path):
     assert "data/survey.csv" in paths
 
 
+# ---------------------------------------------------------------------------
+# A14 — missing (relative, in-package) input, checked before any run
+# ---------------------------------------------------------------------------
+
+
+def test_missing_input_flagged(tmp_path):
+    """A relative data read that doesn't exist and nothing produces → gap."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.R").write_text(
+        'df <- read.csv("data/ghost.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    missing = [g for g in graph.gaps if g.kind == GapKind.input_missing_from_disk]
+    assert len(missing) == 1
+    assert missing[0].exhibit == Path("data/ghost.csv")
+
+
+def test_missing_input_not_flagged_when_produced_upstream(tmp_path):
+    """An upstream script's write call explains the missing file — no gap."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "clean.R").write_text(
+        'write.csv(df, "data/clean.csv")\n'
+    )
+    (tmp_path / "code" / "analysis.R").write_text(
+        'df <- read.csv("data/clean.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.input_missing_from_disk for g in graph.gaps)
+
+
+def test_missing_input_not_flagged_when_present_on_disk(tmp_path):
+    (tmp_path / "code").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "survey.csv").write_text("a,b\n1,2\n")
+    (tmp_path / "code" / "analysis.R").write_text(
+        'df <- read.csv("data/survey.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.input_missing_from_disk for g in graph.gaps)
+
+
+def test_missing_input_not_flagged_for_external_path(tmp_path):
+    """Outside-the-project paths are SCAN's territory (external_data_missing), not A14's."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.R").write_text(
+        'df <- read.csv("/Users/alice/Dropbox/data/raw.csv")\n'
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.input_missing_from_disk for g in graph.gaps)
+
+
+def test_missing_input_not_flagged_for_unresolved_stata_macro(tmp_path):
+    """A Stata `${name}`/`name' macro path is unresolved, not absent — A18's
+    territory, must not be misreported as a missing file."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "analysis.do").write_text(
+        'global rawdata "data/raw"\n'
+        'use "${rawdata}/panel.dta", clear\n'
+    )
+    graph = build_graph(tmp_path)
+    assert not any(g.kind == GapKind.input_missing_from_disk for g in graph.gaps)
+
+
 def test_unknown_extension_yields_no_data_refs(tmp_path):
     """Scripts with unmapped extensions must not silently reuse R's regex."""
     (tmp_path / "code").mkdir()
@@ -494,3 +557,174 @@ def test_script_writes_exposed_on_graph(tmp_path):
     written_names = {w.written_path.name for w in graph.script_writes}
     assert "clean.Rds" in written_names
     assert "out.tex" in written_names
+
+
+# ---------------------------------------------------------------------------
+# Copy/rename provenance edges
+#
+# Real packages often produce an exhibit in two steps: a plotting/table
+# function writes under a working name, then a separate step copies or
+# renames it to the name the paper actually references. Found on a real
+# published package (LandUse-REStud): ~50 of its model figures/tables are
+# produced this way via a single `register = [old => new, ...]` table plus
+# a loop of `cp()` calls over it.
+# ---------------------------------------------------------------------------
+
+
+def test_julia_cp_chains_exhibit_to_underlying_write(tmp_path):
+    """cp(src, dst) two-arg call: exhibit resolves through to the write that
+    produced src, not just a bare 'we found a copy' acknowledgment."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "output").mkdir()
+    (tmp_path / "code" / "plot.jl").write_text(
+        'savefig(p, "output/working_name.pdf")\n'
+    )
+    (tmp_path / "code" / "finalize.jl").write_text(
+        'cp("output/working_name.pdf", "output/figure1.pdf")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figure1.pdf}")
+    graph = build_graph(tmp_path)
+
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("output/figure1.pdf"))
+    assert exhibit.source is not None
+    assert exhibit.source.script.name == "plot.jl"
+    assert exhibit.copied_via is not None
+    assert exhibit.copied_via.script.name == "finalize.jl"
+    assert not any(g.exhibit == Path("output/figure1.pdf") for g in graph.gaps)
+
+
+def test_r_file_rename_chains_exhibit_to_underlying_write(tmp_path):
+    """R's file.rename(src, dst) — same mechanism, R idiom (matches the
+    GHSL_plots()-style two-step write-then-rename found in LandUseR)."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "output").mkdir()
+    (tmp_path / "code" / "plots.R").write_text(
+        'pdf("output/GHSL-Built-Marseille.pdf")\n'
+        'dev.off()\n'
+        'file.rename("output/GHSL-Built-Marseille.pdf", "output/figureA10.pdf")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figureA10.pdf}")
+    graph = build_graph(tmp_path)
+
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("output/figureA10.pdf"))
+    assert exhibit.source is not None
+    assert exhibit.source.written_path.name == "GHSL-Built-Marseille.pdf"
+    assert exhibit.copied_via is not None
+
+
+def test_stata_copy_command_chains_exhibit(tmp_path):
+    """Stata's `copy` is a bare command (space-separated, no parens) — a
+    different syntax shape from every other language's copy function."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "output").mkdir()
+    (tmp_path / "code" / "make.do").write_text(
+        'graph export "output/working.pdf", replace\n'
+        'copy "output/working.pdf" "output/figure2.pdf"\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figure2.pdf}")
+    graph = build_graph(tmp_path)
+
+    exhibit = next(e for e in graph.exhibits if e.tex_path == Path("output/figure2.pdf"))
+    assert exhibit.source is not None
+    assert exhibit.source.written_path.name == "working.pdf"
+
+
+def test_registration_table_pair_chains_exhibit(tmp_path):
+    """The `prefix("old.pdf") => joinpath(dir, "new.pdf")` registration-table
+    idiom (no call at all at the point the literals appear — consumed by a
+    separate loop using variables, which a literal scan can't see) must
+    still be recognized as a copy/rename edge from the pair itself."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "output").mkdir()
+    (tmp_path / "code" / "plot.jl").write_text(
+        'savefig(p, joinpath(outdir(), "mod_data_Lrshare.pdf"))\n'
+    )
+    (tmp_path / "code" / "register.jl").write_text(
+        'register = [\n'
+        '    pf_base_agg("mod_data_Lrshare.pdf") => joinpath(dbplots(), "figure8a.pdf"),\n'
+        ']\n'
+        'for r in register\n'
+        '    cp(r.first, r.second, force=true)\n'
+        'end\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figure8a.pdf}")
+    graph = build_graph(tmp_path)
+
+    exhibit = next(e for e in graph.exhibits if e.tex_path.name == "figure8a.pdf")
+    assert exhibit.copied_via is not None
+    assert exhibit.copied_via.copy_call == "=>"
+    assert exhibit.copied_via.src_path.name == "mod_data_Lrshare.pdf"
+    # The underlying write is found via the *literal* registration pair
+    # (mod_data_Lrshare.pdf, written directly by plot.jl) — not via the
+    # cp(r.first, r.second) loop, which uses variables and is correctly
+    # invisible to a literal-text scan.
+    assert exhibit.source is not None
+    assert exhibit.source.script.name == "plot.jl"
+
+
+def test_registration_table_line_not_misread_as_its_own_write(tmp_path):
+    """Regression test for a real false positive: a registration-table line
+    like `pf_base_agg("old.pdf") => joinpath(dbplots(),"new.pdf")` must NOT
+    be picked up by the generic write-call fallback as if `pf_base_agg(`
+    were itself a write function producing "old.pdf" — that would let the
+    copy-chain resolver "find" a write that is really just the rename line
+    citing its own source filename as an argument. When the true producer
+    of old.pdf is genuinely dynamic (no literal anywhere), the exhibit must
+    be reported as copied_but_no_source_script, not silently resolved
+    against the rename line itself."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "plotter.jl").write_text(
+        # Dynamic, interpolated filename — no literal "mod_data_Lrshare.pdf"
+        # appears here at all, matching the real LandUse.jl idiom this
+        # regression was found against.
+        'dd[:mod_data_Lrshare] = plot(x, y)\n'
+        'for (k, v) in dd\n'
+        '    savefig(v, joinpath(outdir(), "$(k).pdf"))\n'
+        'end\n'
+    )
+    (tmp_path / "code" / "register.jl").write_text(
+        'register = [\n'
+        '    pf_base_agg("mod_data_Lrshare.pdf") => joinpath(dbplots(), "figure8a.pdf"),\n'
+        ']\n'
+    )
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "figure8a.pdf").write_bytes(b"")  # exists_on_disk, like a real leftover output
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figure8a.pdf}")
+    graph = build_graph(tmp_path)
+
+    exhibit = next(e for e in graph.exhibits if e.tex_path.name == "figure8a.pdf")
+    assert exhibit.copied_via is not None
+    # The real bug: source used to resolve to register.jl itself (the
+    # rename line), citing its own line as the "write".
+    assert exhibit.source is None
+    gap = next(g for g in graph.gaps if g.exhibit and g.exhibit.name == "figure8a.pdf")
+    assert gap.kind == GapKind.exhibit_copied_but_no_source_script
+    assert gap.note is not None and "mod_data_Lrshare.pdf" in gap.note
+
+
+def test_copy_chain_dead_end_without_copy_edge_still_plain_gap(tmp_path):
+    """No copy edge at all reaching the exhibit — must fall back to the
+    ordinary exhibit_no_source_script gap, not copied_but_no_source_script."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "unrelated.jl").write_text('println("hi")\n')
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "figure99.pdf").write_bytes(b"")
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{output/figure99.pdf}")
+    graph = build_graph(tmp_path)
+
+    gap = next(g for g in graph.gaps if g.exhibit and g.exhibit.name == "figure99.pdf")
+    assert gap.kind == GapKind.exhibit_no_source_script
+
+
+def test_script_copies_exposed_on_graph(tmp_path):
+    """DependencyGraph.script_copies must expose every copy/rename edge
+    found, mirroring script_writes."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "finalize.jl").write_text(
+        'cp("a.pdf", "b.pdf")\n'
+    )
+    (tmp_path / "paper.tex").write_text(r"\includegraphics{b.pdf}")
+    graph = build_graph(tmp_path)
+    assert len(graph.script_copies) == 1
+    assert graph.script_copies[0].src_path.name == "a.pdf"
+    assert graph.script_copies[0].dst_path.name == "b.pdf"
