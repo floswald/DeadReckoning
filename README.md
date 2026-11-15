@@ -52,31 +52,184 @@ Useful flags:
 ### Pipeline steps
 
 ```
-DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native) → CLEAN → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
+DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native)
+  → CLEAN → RNG-CHECK → MIXED-LANGUAGE-CHECK → SORT-CHECK → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
 ```
 
-| Step | What it does | Tech used |
-|------|--------------|-----------|
-| **DETECT** | Confidentiality gate — restricted-data check, before any copy is made | `re` filename/pattern matching over paths (`confidentiality.py`) — no LLM, no file contents read |
-| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps; writes `DATA-EXHIBIT-MAP.md` | Regex only (`graph.py`) — per-language write-call patterns, LaTeX include/macro regex, hand-written brace-matcher for nested braces. No AST, no LLM. Exhibit↔script matching is literal path-string comparison after macro expansion |
-| **CAPTURE** | Infer language / packages / pin-method from lockfiles or a static scan | `subprocess` (`Rscript -e sessionInfo()`, `pip freeze`, `Pkg.status()`, `creturn list`, etc.) + `re`/`json` parsing of lockfiles (`capture.py`) |
-| **SCAN** | Extract external paths, package references, and secrets from every script | `re` (`scan.py`) |
-| **RESOLVE** | Rewrite external/absolute paths to project-relative ones | `re`, `csv` (`resolve.py`) |
-| **ASK** | Surface gaps/contradictions that need the author; writes `QUESTIONS.md` (halts here only if a question is blocking) | `re` gap→question mapping (`ask.py`) — no LLM |
-| **FIX** | Deterministic fixes (no LLM) — e.g. a script writing to the wrong output path | `re`, dispatcher `Protocol` (`fix_loop.py`) |
-| **LLM-FIX** | Only runs if the native run fails — Claude proposes a fix from the stderr | **`anthropic` SDK** (`llm_dispatcher.py`) — the only step in the pipeline that calls a live LLM; a tool-calling loop scoped to the specific stderr, not the whole project |
-| **RUN (native)** | Actually execute the master script | `subprocess` dispatch by file extension to Rscript/Stata/python/julia/MATLAB (`runner.py`, `stata.py`, `matlab.py`) |
-| **VALIDATE (native)** | Check every exhibit the script claims to produce actually landed on disk | File-existence check against the dependency graph (`runner.py`) |
-| **FIDELITY** *(available, not yet wired into the default run — see below)* | Compare a regenerated exhibit's bytes against a reference snapshot (e.g. the exhibit as it appeared in the published PDF); on mismatch, walks the dependency graph to name the upstream data file(s) most likely responsible | `hashlib` content hash + graph traversal (`check_exhibit_fidelity()` in `runner.py`) — `git log --follow` for provenance if the project is a git repo, filesystem mtime as a lower-confidence fallback otherwise |
-| **CLEAN** | Flag files unreachable from any exhibit; writes `CLEANUP.md` (non-blocking) | BFS over the graph, `shutil` for archive/delete (`clean.py`) |
-| **GENERATE** | Write the Dockerfile (skipped by default — pass `--no-skip-docker`) | String templating (`docker.py`) |
-| **BUILD (docker)** | Build the image | `subprocess.run(["docker", "build", ...])` (`docker.py`) |
-| **VALIDATE (docker)** | Re-run and validate inside the container | `subprocess.run(["docker", "run", ...])` (`docker.py`) |
-| **DELIVER** | Write the README template + `DELIVERY_REPORT.md` | `zipfile`, template rendering (`deliver.py`, `provenance.py`) |
+(`FIDELITY` exists and is tested but is not yet called by this sequence — see its own entry below and [§11](#11-open-questions).)
 
-**VALIDATE only checks that an exhibit exists — not that its content is still what was published.** A run can exit 0, every exhibit can be present on disk, and the numbers inside can still be wrong, if the pipeline silently drifted between acceptance and replication (see [`demo/`](demo/)'s fourth walkthrough for a real example: nothing crashes, nothing fails, and the only thing that catches it is a content comparison against a reference). `check_exhibit_fidelity()` is the function that closes that gap, and it works and is tested today — it just isn't called by `run_pipeline`/`deadreckoning run` yet, only by that demo script directly. Wiring it into the default pipeline (what reference to compare against, and whether a mismatch should block or just warn) is tracked in [§11](#11-open-questions).
+| Step | What it does | Blocking? | Output file |
+|------|--------------|-----------|--------------|
+| **DETECT** | Filename-only restricted-data check, before any file is opened | Yes — can abort before the working copy is even made | — |
+| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps | Partially (some gap kinds feed a blocking ASK question) | — (feeds `DATA-EXHIBIT-MAP.md`, written separately) |
+| **CAPTURE** | Infer language / packages / confidence from lockfiles or a static scan | No | — |
+| **SCAN** | Extract external paths, secrets, and package refs from every script | No | — |
+| **RESOLVE** | Rewrite external/absolute paths to project-relative ones | No | — |
+| **ASK** | Surface gaps that need the author | Yes, for 5 specific gap kinds (see below) | `QUESTIONS.md` |
+| **FIX (deterministic)** | Apply the one fix it can make without an LLM | No | fix report in `AGENT_REPORT.md` |
+| **LLM-FIX** | Claude proposes a fix from a real stderr | No (only engages after a real failure) | `AGENT_REPORT.md` |
+| **RUN (native)** | Execute the master script | — | — |
+| **VALIDATE (native)** | Check every exhibit exists on disk | — | — |
+| **FIDELITY** *(not yet wired into the default run)* | Content-hash an exhibit against a reference, localize a mismatch | No | — |
+| **CLEAN** | Flag files unreachable from any exhibit | No | `CLEANUP.md` |
+| **RNG-CHECK** | Flag an unseeded stochastic call | No | `RNG-WARNINGS.md` |
+| **MIXED-LANGUAGE-CHECK** | Flag Rcpp/Cython/MEX with no declared build step | No | `MIXED-LANGUAGE-WARNINGS.md` |
+| **SORT-CHECK** | Flag a nondeterministic Stata sort feeding a tie-sensitive op | No | `SORT-WARNINGS.md` |
+| **COMPILE-CHECK** *(runs during GRAPH/ASK, not CLEAN)* | Standalone Fortran/C/C++ source with no build script | Yes | — (feeds a blocking ASK question) |
+| **GENERATE** | Write the Dockerfile (skipped by default) | — | `Dockerfile`, `.dockerignore` |
+| **BUILD (docker)** | Build the image | — | — |
+| **VALIDATE (docker)** | Re-run and validate inside the container | — | — |
+| **DELIVER** | Write the final README + report + zip | — | `README`, `DELIVERY_REPORT.md`, `.zip` |
 
-`--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — the Docker-phase steps (CLEAN onward) aren't individually stoppable yet, since they only run when Docker isn't skipped.
+Each of these is explained in full below — exact mechanism, what it will and won't catch, and a worked example. If you just want to run the tool, the table above is enough; read on if you want to know precisely what each check is doing before you trust it.
+
+`--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — CLEAN onward aren't individually stoppable yet, since they only run when Docker isn't skipped.
+
+### Tool reference
+
+#### DETECT — `confidentiality.py`
+
+The first thing that runs, before any file is opened or any copy made. Pure filename/stem matching — it never reads file contents. Two regex sets: a literal-substring list (`restricted`, `confidential`, `nda`, `hipaa`, `pii`, `microdata`, `census`, `irs`, `hmda`, `nlsy`, `psid`, `sipp`, `acs_pums`, …) and a contextual pattern for the word "admin" (`admin(?:istrative)?[_-]?(?:data|records?|microdata|panel)`) so a bare "admin" in a filename doesn't false-positive. Code/doc/output extensions (`.R`, `.py`, `.tex`, `.pdf`, …) are excluded from matching entirely — this is deliberately conservative to avoid false positives on things like a citation file.
+
+- **Blocking:** yes. A hit aborts before the working copy is made (or triggers a re-confirmation prompt).
+- **Example:** `census_microdata_2019.dta` → flagged (`microdata` substring). `census_add_toutain.Rd` → not flagged (`.Rd` is an excluded extension), even though "census" appears in the name.
+
+#### GRAPH — `graph.py`
+
+The largest module in the codebase, and the one everything else depends on. No AST, no LLM — pure regex, but a lot of it. It reads `paper.tex` for every `\includegraphics`/`\input`/`\include`/`\lstinputlisting`/`\includesvg` (and a handful of data-table macros), expanding any `\newcommand`/`\def` aliases first, to build the authoritative **exhibit list**. For each exhibit path, it tries to find the script that writes it, in three tiers:
+
+1. **Exact match** — some script's extracted write-call (`ggsave(...)`, `graph export ...`, `save ...dta`, `to_csv(...)`, etc. — one regex family per language) writes to that exact path.
+2. **Basename match** — no exact match, but some script writes a file with the same name in a different directory → flagged as `script_writes_wrong_path` (this is the one gap FIX can repair deterministically, below).
+3. **Copy/rename trace** — still nothing, but a `cp`/`shutil.copy`/Stata `copy`/`file.rename` call anywhere connects an existing write to the exhibit path one or more hops upstream.
+
+Data-file *reads* (`read.csv`, `use`/`import delimited`, `read_csv`, `CSV.read`, …) are extracted the same way and linked to whichever script's write-call produced them, which is what populates `DataFile.produced_by`. `script_order` (used by RNG-CHECK and by the demos' native-run loop) is a topological sort over those producer→consumer edges — not alphabetical, and not the order scripts appear in the paper.
+
+- **Blocking:** four gap kinds here are blocking (`exhibit_no_source_script`, `exhibit_missing_from_disk`, `exhibit_copied_but_no_source_script`, `input_missing_from_disk`); inline hand-typed tables/numbers in the `.tex` are flagged but non-blocking.
+- **Example:** `code/stata/prep.do` contains `save "data/x.dta", replace` → `DataFile(path=data/x.dta, produced_by=code/stata/prep.do)`. If `paper.tex` has `\input{output/Table1.tex}` and some script instead writes `output/table1.tex` (case mismatch), tier 2 catches it as `script_writes_wrong_path` — a gap FIX can rewrite automatically, no author input needed.
+
+#### CAPTURE — `capture.py`
+
+A lockfile-priority cascade, not inference-first: `renv.lock` → `Manifest.toml`/`Project.toml` → `environment.yml` → `requirements.txt` → `pyproject.toml` → (no lockfile, `.do` files present) Stata's `creturn list` via subprocess → extension-based guess as a last resort. Each source produces an `EnvSpec` with a `confidence` score — an explicit lockfile is high confidence, an extension-based guess is low.
+
+- **Blocking:** no. Low confidence (below 0.5) is what triggers ASK's "when did you last run this?" question.
+- **Example:** a project with `renv.lock` → exact pinned R package versions, confidence high, no question asked. A Stata-only project with no lockfile standard to read → confidence 0.30 (the actual value the rcpp_rng demo prints) → ASK raises `env_last_run_date`.
+
+#### SCAN — `scan.py`
+
+Per-language regex scanners pulling three things out of every script: external paths (absolute Unix/Windows paths, classified by substring — Dropbox, OneDrive, Google Drive, iCloud, network share, HPC scratch, URL), secrets (filenames containing `secret`/`token`/`credential`/`password`, or extensions `.env`/`.pem`/`.key`), and package references. Pure extraction — zero side effects, nothing is rewritten here.
+
+- **Blocking:** no.
+- **Example:** `read.csv("/Users/jane/Dropbox/paper/data/x.csv")` → one external path, kind `"dropbox"`. A file named `.env` anywhere in the project → flagged as a secret, later excluded from the Docker build context.
+
+#### RESOLVE — `resolve.py`
+
+For every external path SCAN found, computes a project-relative target and does a literal find-and-replace of the exact quoted string in every script that uses it. Optionally "adopts" a language-idiomatic path helper afterward (R's `here::here()`, Python's `pathlib`, Julia's `@__DIR__`, MATLAB's `fullfile()`) as a separate, opt-in rewrite.
+
+- **Blocking:** no. Mutates scripts directly in the working copy; records a before/after pair per rewrite.
+- **Example:** `read.csv("/Users/jane/Dropbox/paper/data/x.csv")` → rewritten to `read.csv("data/x.csv")`.
+
+#### ASK — `ask.py`
+
+A dict-driven map from `GapKind` to a question — no LLM anywhere in this step. Five gap kinds block the pipeline until answered: `exhibit_no_source_script`, `exhibit_missing_from_disk`, `exhibit_copied_but_no_source_script`, `input_missing_from_disk`, and `compiled_language_no_build_script`. Everything else (inline tables/statistics, the Stata/MATLAB license question, the low-confidence "when did you last run this" question) is surfaced but doesn't halt anything.
+
+- **Blocking:** yes, for the five kinds above — writes `QUESTIONS.md` and sets `needs_author_input=True`.
+- **Example:** a Fortran file with no Makefile anywhere → `compiled_language_no_build_script` → blocks, asks for the exact compile command (expects a path/command-shaped answer, not free text).
+
+#### FIX (deterministic) — `fix_loop.py`
+
+Exactly **one** fix kind exists here: `script_writes_wrong_path` → `fix_write_path`, a literal quoted-string replace of the script's wrong output path with the one `.tex` actually expects — the same mechanism class as RESOLVE's rewrites, just targeting GRAPH's tier-2 gap instead of an external path. Two other `FixAction` kinds (`rewrite_path`, `add_missing_script_output`) exist in the schema but are only ever produced by the LLM dispatcher below, never by this deterministic one.
+
+- **Blocking:** no — this step is the fix, not a gate.
+- **Example:** script writes `output/table1.tex`; `.tex` expects `output/Table1.tex` → one `fix_write_path` action, string-replaced in the script, no author input and no LLM call needed.
+
+#### LLM-FIX — `llm_dispatcher.py`
+
+The only step that calls a live LLM, and only when the deterministic dispatcher has converged with gaps still open, or a native run actually failed. Uses `claude-sonnet-4-6` by default, escalating to `claude-opus-4-8` after 2 stalled/repeated proposals, and gives up after 3 stalls total. Each call is scoped tightly: the open-gaps list, a flat file listing of the working copy (max 200 entries), the last 2000 characters of stderr, and the list of fixes already tried (so it doesn't repeat itself) — not the whole project. It can propose exactly one of four actions per call: `install_package`, `rewrite_path`, `fix_write_path`, `add_missing_script_output`; only the first tool call in its response is used, any others are discarded.
+
+- **Blocking:** no — only engages after a real failure, doesn't gate anything on its own.
+- **Example:** a Stata run fails with `file survey_data.csv not found`; the dispatcher sends that stderr plus a directory listing; the model notices `survey.csv` actually exists and proposes `rewrite_path(script, "survey_data.csv", "survey.csv")`.
+
+#### RUN (native) — `runner.py`
+
+Plain `subprocess` dispatch by file extension: `.R`/`.r` → Rscript, `.do` → Stata (via `stata.py`, which locates the binary and parses the log), `.jl` → julia, `.py` → python, `.m` → MATLAB, `.sh` → bash. Fortran/C/C++ can't be "run" this way — they use the `compile_command` ASK's blocking question collected from the author.
+
+- **Example:** `run_natively(working_copy, master_script="code/simulate.R")` shells out to `Rscript code/simulate.R` and captures stdout/stderr/exit code.
+
+#### VALIDATE (native) — `runner.py`
+
+**Existence only.** For every exhibit with a known source script, checks `Path.exists()`. That's the entire mechanism — it does not open the file, does not check its size, does not look at its content in any way. A script that writes garbage, or writes nothing new because the file already existed, passes VALIDATE as long as the path exists afterward.
+
+- **Example:** `output/Table1.tex` exists after the run → `present`. A script that was supposed to write `output/fig2.pdf` but crashed silently before that line → `missing`, listed explicitly.
+
+#### FIDELITY — `check_exhibit_fidelity()` in `runner.py` *(not yet wired into the default pipeline)*
+
+Compares **SHA-256** hashes — `hashlib.sha256(bytes).hexdigest()`, not MD5 — of the regenerated exhibit against a reference snapshot supplied by the caller (there is no "last known good" copy inside a fresh working copy by default; a demo script or a future wiring has to supply one, e.g. a pre-captured published version). On a hash mismatch, it walks the dependency graph backward from the exhibit's producing script through every upstream `DataFile` via the `produced_by` chain and reports a suspect for each one:
+
+- If the project is a **git repo** and the file is tracked: `git log -1 --follow --format=%H %ad %an` (a real subprocess call) → exact commit, date, author, reported with `confidence="high"`.
+- Otherwise: filesystem **mtime** → `confidence="low"`, with an explicit caveat that mtime is a lead, not proof (Dropbox sync, zip/unzip, and `scp` all rewrite mtimes without a real edit happening).
+
+Separately, it checks the *producing script itself* (not the upstream data) for a wall-clock/PID/tempdir call (`Sys.time()`, `time.time()`, `getpid()`, …) via `nondeterminism.py` — if found, the mismatch is annotated "may be expected, not drift" rather than attributed to any file. Note this only covers that specific nondeterminism signature; an unseeded RNG draw (a different failure mode — see RNG-CHECK) produces a hash mismatch with no upstream-file suspect and no nondeterminism note at all, which is a real, demonstrated limitation — see `demo/rcpp_rng/`.
+
+- **Blocking:** no, and not called by `run_pipeline()`/`deadreckoning run` at all today — only invoked directly by demo scripts. See [§11](#11-open-questions) for what's blocking its default wiring.
+- **Example:** reference `sha256("a1b2…")` vs. regenerated `sha256("c3d4…")` → mismatch. No git repo → walks back to `data/survey_prepped.dta`, reports it as a low-confidence mtime lead, even in cases (like the rcpp_rng demo) where that file never actually changed and the real cause is an unseeded RNG draw inside the script itself.
+
+#### CLEAN — `clean.py`
+
+"Reachable" is a conservative BFS, not a strict one — it would rather under-flag than delete something live. The seed set is every script that directly produces an exhibit plus every script in `graph.script_order`; two expansion passes then add any script whose filename *stem* appears as a literal substring in any other script's text (catches both "this sub-script is sourced/called by a reachable one" and "this orchestrator calls a reachable script by name"). Separately, every `DataFile.path` in the graph is reachable regardless. Everything else on disk — except prose/config extensions (`.tex`, `.md`, `.yml`, …) and a fixed always-keep filename list — is a candidate orphan.
+
+**Known limitation, not a bug**: an output file that *is* the exhibit itself (a figure PDF, a PNG) is never added to the reachable set — only scripts and data files are — so a figure the paper actually includes can show up as an "orphan." Documented in `demo/README.md`'s landuse_fanout and rcpp_rng sections; not something this check is meant to fix.
+
+- **Blocking:** no — first encounter writes `CLEANUP.md` and continues with default action "keep"; a second run parses and applies author choices (delete / archive / keep-with-reason).
+- **Example:** `old_cleaning_v3.R`, called by nothing, producing no exhibit → orphan, kind `script`. `output/fig1.pdf`, the actual figure the paper includes → also flagged orphan, kind `output` — the known limitation above, not a sign anything is wrong.
+
+#### RNG-CHECK — `rng_check.py`
+
+Per-language seed-regex / stochastic-call-regex pairs across 8 languages (R, Python, Stata, Julia, MATLAB, Fortran, C, C++ — 11 file extensions). Walks `graph.script_order` (falling back to sorted-path order for anything not graph-connected), tracking one boolean: once any script up to and including the current one has a real seed call, every stochastic call in every later script is considered covered — this is what lets one `set.seed()` in a master script cover everything it sources. A C++ RNG engine seeded from `std::random_device` does **not** count as seeded (entropy seeding is deliberately non-reproducible, so it's treated the same as no seed at all). The C++ patterns also cover Rcpp's embedding of R's own RNG (`Rcpp::rnorm`, `R::rnorm`, `norm_rand()`, `unif_rand()`, …), added specifically so an Rcpp routine drawing from R's RNG stream is caught the same way a plain R `rnorm()` call would be.
+
+- **Blocking:** no.
+- **Example:** `01_seed.R` has `set.seed(42)`; `02_analysis.R` has `rnorm(10)` with no seed of its own → not flagged, the upstream seed covers it. Swap which script runs first and the same `rnorm(10)` call is flagged.
+
+#### MIXED-LANGUAGE-CHECK — `mixed_language_check.py`
+
+Three independent sub-checks, one per embedding pattern. **Rcpp**: `library(Rcpp)` / `sourceCpp(...)` / `// [[Rcpp::` anywhere, or `LinkingTo: Rcpp` in `DESCRIPTION` → flagged if no `src/Makevars`/`Makevars.win`/`Makevars.in` exists anywhere in the project. **Cython**: `.pyx`/`.pxd` files or `pyximport`/`cythonize(...)` usage → flagged if no `setup.py` calling `cythonize()` and no `pyproject.toml` Cython build-system section. **MEX**: a C/C++ file defining `mexFunction` → flagged if no `.m`/`.sh` script calls `mex(...)`.
+
+This check is deliberately **non-blocking**, unlike COMPILE-CHECK below — the embedding language's own tool (`sourceCpp()`, Cython's build backend, `mex()`) usually *can* auto-compile with default flags, so the package genuinely runs; the risk is a silently different compiled binary if the author's own machine relied on a flag (an OpenMP flag, an include path, a C++ standard) that was never recorded anywhere in the package.
+
+- **Example:** `src/shocks.cpp` has `// [[Rcpp::export]]` and `#include <Rcpp.h>`, and no `src/Makevars` exists anywhere → one finding, non-blocking. The file's own comment can record what the author's personal (unshipped) `~/.R/Makevars` actually set — see `demo/rcpp_rng/src/shocks.cpp`.
+
+#### SORT-CHECK — `sort_check.py`
+
+Finds every `.do` file; skips the whole file if `set sortseed` appears anywhere in it (an explicit sign the author already thought about this). Otherwise, collects every `sort`/`gsort <varlist>` line lacking a `, stable` option, then scans the rest of the file for a `by`/`bysort ... : ... _n==1` or `_n==_N` pattern — "keep the first/last observation per group" — on the same line. If found, pairs it with the nearest *preceding* unstable sort as one finding.
+
+This exists because Stata's default `sort` breaks ties among equal key values with an internal random tiebreaker that is **not** guaranteed stable across runs, Stata editions (SE vs. MP), or machine thread counts — unlike R's/Python's/Julia's sort, which is specified to preserve input order for ties. See Stata's own [`sortseed` docs](https://www.stata.com/help13.cgi?sortseed=) and the [`sort` manual](https://www.stata.com/manuals/dsort.pdf).
+
+- **Blocking:** no.
+- **Example:** `sort region` (3 respondents share each region code) then `by region: keep if _n==1`, no `, stable`, no `set sortseed` anywhere in the file → one finding, citing both line numbers. Add `, stable` to the sort, or `set sortseed` anywhere in the file, and it's not flagged.
+
+#### COMPILE-CHECK — `compile_check.py`
+
+Finds every `.f90`/`.f95`/`.f`/`.for`/`.c`/`.cpp`/`.cc`/`.cxx` file, **excluding** any `.cpp`/`.cc`/`.cxx` that contains `// [[Rcpp::` or `#include <Rcpp.h>` (Rcpp-embedded sources are exempt — R's `sourceCpp()` *is* the build step for those, so this check would otherwise false-block every Rcpp package). For whatever compiled source remains, it looks for a build artifact: a named file (`Makefile`, `CMakeLists.txt`, `configure`, `build.sh`, `compile.sh`) at the project root or in `code/`, or any `.sh`/`.bat` script whose content invokes a compiler (`gcc`/`g++`/`gfortran`/`clang`/`cmake`/`make`).
+
+This is the one check in this whole list that **blocks** — a standalone Fortran/C/C++ source genuinely cannot be run without knowing the exact compile command, and DeadReckoning has no way to guess it from disk (shell history isn't on disk).
+
+- **Blocking:** yes — feeds the `compiled_language_no_build_script` gap into ASK.
+- **Example:** `code/simulate.f90`, no Makefile/build.sh anywhere → blocks, asks for the exact compile command. An Rcpp-tagged `.cpp` sitting right next to it with no Makevars is exempt from this check (but still picked up, non-blocking, by MIXED-LANGUAGE-CHECK above).
+
+#### GENERATE / BUILD / VALIDATE (docker) — `docker.py`
+
+**GENERATE** writes a templated `Dockerfile`; for R, the base image is chosen by rule (geospatial packages present → `rocker/geospatial`, Stan packages → `rocker/stan`, 3+ tidyverse packages → `rocker/tidyverse`, else `rocker/r-ver`), tagged to the version/snapshot date CAPTURE found. System (apt) dependencies are mapped from the package list. `.dockerignore` excludes the secrets SCAN found plus all data directories. **BUILD**/**VALIDATE (docker)** are literal `subprocess.run(["docker", "build", ...])` / `["docker", "run", ...]` calls; failures are parsed for missing-package patterns and fed back into the Dockerfile — a Docker-specific echo of the native FIX loop.
+
+- **Example:** an R project using `sf` and `terra` gets `rocker/geospatial:<version>` instead of the generic `rocker/r-ver` image.
+
+#### DELIVER — `deliver.py`
+
+Renders the final `README` (AEA-style computational-requirements section, auto-filled from the exhibit→script table GRAPH built and the runtimes measured during VALIDATE) and `DELIVERY_REPORT.md`, then zips the working copy with `zipfile`, excluding hidden/internal directories and DeadReckoning's own working files (`QUESTIONS.md`, `CLEANUP.md`, etc.).
+
+#### DATA-EXHIBIT-MAP.md — `provenance.py`
+
+Not a separate check — reuses the `produced_by` edges GRAPH already built. For each exhibit, walks backward through however many intermediate write/read hops stand between it and a raw (non-produced) input, rendering one traced chain per exhibit.
+
+- **Example:** `Table1.tex` ← `simulate.R` ← `survey_prepped.dta` ← `prep_survey.do` ← `survey_raw.csv` (raw, no producer) → rendered as one line in the data availability statement.
 
 Other commands, for a quicker look without running anything:
 ```bash
@@ -85,7 +238,7 @@ deadreckoning graph /path/to/your/project   # dependency graph + gap report
 deadreckoning detect-stata                  # is Stata installed and on PATH?
 ```
 
-**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has five runnable, narrated walkthroughs — a rigged toy paper, two slices of real published packages, and two cases where nothing crashes at all. The first three show every pipeline step live, including the LLM catching and fixing a real broken path; the fourth shows a run that passes DETECT through VALIDATE cleanly and is still wrong, and how FIDELITY catches it; the fifth scales that up to one shared input feeding six real exhibits, only three of which are actually stale, and shows FIDELITY telling them apart. See [`demo/README.md`](demo/README.md).
+**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has six runnable, narrated walkthroughs — a rigged toy paper, two slices of real published packages, two cases where nothing crashes at all, and a 3-language Rcpp package with three static leads found before anything runs. The first three show every pipeline step live, including the LLM catching and fixing a real broken path; the fourth shows a run that passes DETECT through VALIDATE cleanly and is still wrong, and how FIDELITY catches it; the fifth scales that up to one shared input feeding six real exhibits, only three of which are actually stale, and shows FIDELITY telling them apart; the sixth shows SORT-CHECK, MIXED-LANGUAGE-CHECK, and RNG-CHECK each catching a different gap statically, and FIDELITY correctly flagging drift but misattributing its cause when the real cause is nondeterminism rather than a changed file. See [`demo/README.md`](demo/README.md).
 
 ---
 
@@ -364,6 +517,7 @@ The pipeline has two distinct phases separated by the native validation gate. **
 ### Phase 4: Clean and containerize
 
 10. **CLEAN** — show the author all files not reached by the dependency graph (abandoned scripts, superseded data, figures cut from the draft) and offer three choices per group: delete, archive, or keep with a documented reason. See Section 7.6.
+    - Immediately after CLEAN, three more non-blocking checks run and write their own warning files: **RNG-CHECK** (`RNG-WARNINGS.md`, an unseeded stochastic call), **MIXED-LANGUAGE-CHECK** (`MIXED-LANGUAGE-WARNINGS.md`, Rcpp/Cython/MEX with no declared build step), and **SORT-CHECK** (`SORT-WARNINGS.md`, a nondeterministic Stata sort feeding a tie-sensitive operation). None of these block delivery. See the [Tool reference](#tool-reference) above for exactly what each one matches.
 11. **GENERATE** — write the Docker setup: `Dockerfile` (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume at run time + `.dockerignore`. Also write the computational requirements README (AEA format), with the runtime from step 8 inserted automatically.
 12. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements (default `linux/amd64` for Stata/MATLAB; see Section 7.7). The image is intentionally small: operating system + language runtime + packages, nothing else.
 13. **VALIDATE (container)** — delete all outputs and run the master script inside the container with the replication package folder attached as a volume. Must reproduce every exhibit, same as the native run. Measure and record container runtime separately. Both native and container runtimes go into the README.
