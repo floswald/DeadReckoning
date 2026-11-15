@@ -19,6 +19,7 @@ from .compile_check import check_compiled_language_build
 from .confidentiality import check_restricted
 from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
+from .fidelity_check import FidelityCheckResult, run_fidelity_check_step
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
 from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
@@ -48,6 +49,7 @@ class PipelineResult:
     rng_check: RngCheckResult | None = None
     mixed_language_check: MixedLanguageCheckResult | None = None
     sort_check: SortCheckResult | None = None
+    fidelity_check: FidelityCheckResult | None = None
     deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
@@ -320,6 +322,11 @@ def run_pipeline(
     # operation; write SORT-WARNINGS.md (non-blocking)
     result.sort_check = run_sort_check_step(working_copy)
 
+    # FIDELITY: compare regenerated exhibits against author-supplied
+    # reference directories, if any were given at intake; write
+    # FIDELITY-REPORT.md (non-blocking). See README §11.
+    result.fidelity_check = run_fidelity_check_step(working_copy, result.intake)
+
     if skip_docker:
         return result
 
@@ -351,6 +358,7 @@ def run_pipeline(
         resolve=result.resolve,
         native_ok=result.native_ok,
         container_ok=result.container_ok,
+        fidelity_check=result.fidelity_check,
     )
 
     return result

@@ -53,10 +53,8 @@ Useful flags:
 
 ```
 DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native)
-  → CLEAN → RNG-CHECK → MIXED-LANGUAGE-CHECK → SORT-CHECK → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
+  → CLEAN → RNG-CHECK → MIXED-LANGUAGE-CHECK → SORT-CHECK → FIDELITY → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
 ```
-
-(`FIDELITY` exists and is tested but is not yet called by this sequence — see its own entry below and [§11](#11-open-questions).)
 
 | Step | What it does | Blocking? | Output file |
 |------|--------------|-----------|--------------|
@@ -70,11 +68,11 @@ DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX �
 | **LLM-FIX** | Claude proposes a fix from a real stderr | No (only engages after a real failure) | `AGENT_REPORT.md` |
 | **RUN (native)** | Execute the master script | — | — |
 | **VALIDATE (native)** | Check every exhibit exists on disk | — | — |
-| **FIDELITY** *(not yet wired into the default run)* | Content-hash an exhibit against a reference, localize a mismatch | No | — |
 | **CLEAN** | Flag files unreachable from any exhibit | No | `CLEANUP.md` |
 | **RNG-CHECK** | Flag an unseeded stochastic call | No | `RNG-WARNINGS.md` |
 | **MIXED-LANGUAGE-CHECK** | Flag Rcpp/Cython/MEX with no declared build step | No | `MIXED-LANGUAGE-WARNINGS.md` |
 | **SORT-CHECK** | Flag a nondeterministic Stata sort feeding a tie-sensitive op | No | `SORT-WARNINGS.md` |
+| **FIDELITY** | Content-hash regenerated exhibits against author-supplied reference exhibits; localize a mismatch | No — but only runs at all if `reference_exhibit_dirs` was given at intake | `FIDELITY-REPORT.md` (written whenever it runs, clean pass or not) |
 | **COMPILE-CHECK** *(runs during GRAPH/ASK, not CLEAN)* | Standalone Fortran/C/C++ source with no build script | Yes | — (feeds a blocking ASK question) |
 | **GENERATE** | Write the Dockerfile (skipped by default) | — | `Dockerfile`, `.dockerignore` |
 | **BUILD (docker)** | Build the image | — | — |
@@ -161,18 +159,6 @@ Plain `subprocess` dispatch by file extension: `.R`/`.r` → Rscript, `.do` → 
 
 - **Example:** `output/Table1.tex` exists after the run → `present`. A script that was supposed to write `output/fig2.pdf` but crashed silently before that line → `missing`, listed explicitly.
 
-#### FIDELITY — `check_exhibit_fidelity()` in `runner.py` *(not yet wired into the default pipeline)*
-
-Compares **SHA-256** hashes — `hashlib.sha256(bytes).hexdigest()`, not MD5 — of the regenerated exhibit against a reference snapshot supplied by the caller (there is no "last known good" copy inside a fresh working copy by default; a demo script or a future wiring has to supply one, e.g. a pre-captured published version). On a hash mismatch, it walks the dependency graph backward from the exhibit's producing script through every upstream `DataFile` via the `produced_by` chain and reports a suspect for each one:
-
-- If the project is a **git repo** and the file is tracked: `git log -1 --follow --format=%H %ad %an` (a real subprocess call) → exact commit, date, author, reported with `confidence="high"`.
-- Otherwise: filesystem **mtime** → `confidence="low"`, with an explicit caveat that mtime is a lead, not proof (Dropbox sync, zip/unzip, and `scp` all rewrite mtimes without a real edit happening).
-
-Separately, it checks the *producing script itself* (not the upstream data) for a wall-clock/PID/tempdir call (`Sys.time()`, `time.time()`, `getpid()`, …) via `nondeterminism.py` — if found, the mismatch is annotated "may be expected, not drift" rather than attributed to any file. Note this only covers that specific nondeterminism signature; an unseeded RNG draw (a different failure mode — see RNG-CHECK) produces a hash mismatch with no upstream-file suspect and no nondeterminism note at all, which is a real, demonstrated limitation — see `demo/rcpp_rng/`.
-
-- **Blocking:** no, and not called by `run_pipeline()`/`deadreckoning run` at all today — only invoked directly by demo scripts. See [§11](#11-open-questions) for what's blocking its default wiring.
-- **Example:** reference `sha256("a1b2…")` vs. regenerated `sha256("c3d4…")` → mismatch. No git repo → walks back to `data/survey_prepped.dta`, reports it as a low-confidence mtime lead, even in cases (like the rcpp_rng demo) where that file never actually changed and the real cause is an unseeded RNG draw inside the script itself.
-
 #### CLEAN — `clean.py`
 
 "Reachable" is a conservative BFS, not a strict one — it would rather under-flag than delete something live. The seed set is every script that directly produces an exhibit plus every script in `graph.script_order`; two expansion passes then add any script whose filename *stem* appears as a literal substring in any other script's text (catches both "this sub-script is sourced/called by a reachable one" and "this orchestrator calls a reachable script by name"). Separately, every `DataFile.path` in the graph is reachable regardless. Everything else on disk — except prose/config extensions (`.tex`, `.md`, `.yml`, …) and a fixed always-keep filename list — is a candidate orphan.
@@ -206,6 +192,23 @@ This exists because Stata's default `sort` breaks ties among equal key values wi
 - **Blocking:** no.
 - **Example:** `sort region` (3 respondents share each region code) then `by region: keep if _n==1`, no `, stable`, no `set sortseed` anywhere in the file → one finding, citing both line numbers. Add `, stable` to the sort, or `set sortseed` anywhere in the file, and it's not flagged.
 
+#### FIDELITY — `fidelity_check.py` (wiring) + `check_exhibit_fidelity()` in `runner.py` (comparison)
+
+Only runs at all if the author gave at least one directory in `reference_exhibit_dirs` at intake ([§3](#3-minimum-requirements-what-the-author-must-provide)) — the output files (figures/tables) as they stood when the paper was accepted. There is no other source: the compiled paper PDF is NOT usable as a reference by this mechanism (it would need page extraction and a visual/text diff, not a byte compare); if the author has nothing preserved separately from their working project, this step reports `attempted=False` and does nothing further — there is no reference to reconstruct one from.
+
+When directories are given: `fidelity_check.py` rebuilds the dependency graph fresh (not reusing an earlier one — the mtime evidence below needs current mtimes), then for every exhibit with a real producing script, searches every given directory (in author-given order) for a file matching the exhibit's **basename** — not full path, since the reference directory's layout has no reason to mirror the working copy's. If the same basename turns up in more than one given directory, that's recorded as a collision (the first directory's hit is still used for the comparison, but the collision is surfaced, not silently resolved) rather than risk a wrong match reporting false confidence.
+
+For each match, `check_exhibit_fidelity()` compares **SHA-256** hashes — `hashlib.sha256(bytes).hexdigest()`, not MD5. On a hash mismatch, it walks the dependency graph backward from the exhibit's producing script through every upstream `DataFile` via the `produced_by` chain and reports a suspect for each one:
+
+- If the project is a **git repo** and the file is tracked: `git log -1 --follow --format=%H %ad %an` (a real subprocess call) → exact commit, date, author, reported with `confidence="high"`.
+- Otherwise: filesystem **mtime** → `confidence="low"`, with an explicit caveat that mtime is a lead, not proof (Dropbox sync, zip/unzip, and `scp` all rewrite mtimes without a real edit happening).
+
+Separately, it checks the *producing script itself* (not the upstream data) for a wall-clock/PID/tempdir call (`Sys.time()`, `time.time()`, `getpid()`, …) via `nondeterminism.py` — if found, the mismatch is annotated "may be expected, not drift" rather than attributed to any file. Note this only covers that specific nondeterminism signature; an unseeded RNG draw (a different failure mode — see RNG-CHECK) produces a hash mismatch with no upstream-file suspect and no nondeterminism note at all, which is a real, demonstrated limitation — see `demo/rcpp_rng/`.
+
+- **Blocking:** no, ever. **Written-ness is different from the siblings above**: `FIDELITY-REPORT.md` is written whenever the step actually runs (`attempted=True`), clean pass or not — unlike RNG-CHECK/MIXED-LANGUAGE-CHECK/SORT-CHECK, which only write on a finding. The author supplied a reference specifically to get an answer; a clean pass is itself worth confirming in writing. When `attempted=False`, nothing is written, but `DELIVERY_REPORT.md`'s Pipeline Summary table always carries a "not run — no reference exhibit directories were supplied" row either way, so the not-attempted state is visible in the final package too, not only recoverable by inspecting `PipelineResult` in code.
+- **Known limitation, not fixed**: if a reference directory lives *inside* the working copy (plausible — e.g. a version-controlled `replication/reference/` folder), CLEAN runs before this step and has no knowledge of it — it lands every file there in `CLEANUP.md` as an orphan, even while `FIDELITY-REPORT.md` right next to it says everything matches. Same class of gap already documented for the demo fixtures' own `reference/` directories (see `demo/README.md`'s landuse_fanout section).
+- **Example:** author gives `/Users/jane/old_submission/figs`; `output/fig1.pdf` matches a file there byte-for-byte → no finding. `output/Table1.tex` has no file named `Table1.tex` anywhere in the given directories → listed under "exhibits with no matching reference file," not silently skipped.
+
 #### COMPILE-CHECK — `compile_check.py`
 
 Finds every `.f90`/`.f95`/`.f`/`.for`/`.c`/`.cpp`/`.cc`/`.cxx` file, **excluding** any `.cpp`/`.cc`/`.cxx` that contains `// [[Rcpp::` or `#include <Rcpp.h>` (Rcpp-embedded sources are exempt — R's `sourceCpp()` *is* the build step for those, so this check would otherwise false-block every Rcpp package). For whatever compiled source remains, it looks for a build artifact: a named file (`Makefile`, `CMakeLists.txt`, `configure`, `build.sh`, `compile.sh`) at the project root or in `code/`, or any `.sh`/`.bat` script whose content invokes a compiler (`gcc`/`g++`/`gfortran`/`clang`/`cmake`/`make`).
@@ -223,7 +226,7 @@ This is the one check in this whole list that **blocks** — a standalone Fortra
 
 #### DELIVER — `deliver.py`
 
-Renders the final `README` (AEA-style computational-requirements section, auto-filled from the exhibit→script table GRAPH built) and `DELIVERY_REPORT.md`, then zips the working copy with `zipfile`, excluding hidden/internal directories and DeadReckoning's own working files (`QUESTIONS.md`, `CLEANUP.md`, etc.). There is no runtime measurement anywhere in the pipeline — `runtime_estimate` is the author's own intake answer ("minutes"/"hours"/"days"), never a measured wall-clock value.
+Renders the final `README` (AEA-style computational-requirements section, auto-filled from the exhibit→script table GRAPH built) and `DELIVERY_REPORT.md`, then zips the working copy with `zipfile`, excluding hidden/internal directories and DeadReckoning's own working files (`QUESTIONS.md`, `CLEANUP.md`, etc.). There is no runtime measurement anywhere in the pipeline — `runtime_estimate` is the author's own intake answer ("minutes"/"hours"/"days"), never a measured wall-clock value. `DELIVERY_REPORT.md`'s Pipeline Summary table includes a Fidelity row stating whether FIDELITY ran at all and, if so, how many exhibits matched.
 
 #### DATA-EXHIBIT-MAP.md — `provenance.py`
 
@@ -288,11 +291,12 @@ What is actually hard about this problem is reconstructing a working pipeline fr
 | 3 | `code_root` | Where is your code? | No |
 | 4 | `master_script` | What is the master/entry script? (Enter to auto-detect) | No |
 | 5 | `data_root` | Where is your data? | No |
-| 6 | `last_run_date` | When did you last run this project successfully? | No |
-| 7 | `languages_claimed` | Which languages does this project use? (Enter to auto-detect) | No |
-| 8 | `has_stata_license` / `has_matlab_license` | Is a license available on this machine? | No — only shown if that language was claimed in #7 |
-| 9 | `runtime_estimate` | Roughly how long does a full run take? | No |
-| 10 | `target_journal` | Target journal or submission standard? | No |
+| 6 | `reference_exhibit_dirs` | Where are your output files stored — the figures/tables in your conditionally accepted paper PDF, right now? One or more absolute paths, comma-separated. | No — this is FIDELITY's reference; see its Tool reference entry below |
+| 7 | `last_run_date` | When did you last run this project successfully? | No |
+| 8 | `languages_claimed` | Which languages does this project use? (Enter to auto-detect) | No |
+| 9 | `has_stata_license` / `has_matlab_license` | Is a license available on this machine? | No — only shown if that language was claimed in #8 |
+| 10 | `runtime_estimate` | Roughly how long does a full run take? | No |
+| 11 | `target_journal` | Target journal or submission standard? | No |
 
 Everything the author leaves blank falls back to auto-detection where one exists (e.g. `master_script`, language). There is no separate question for "where is your existing documentation" — that item doesn't exist in the current question list, despite being a natural thing to ask; see [§11](#11-open-questions). `--skip-intake` bypasses this entirely and relies only on the filename-based restricted-data check in [§4](#4-confidentiality-and-restricted-data).
 
@@ -372,9 +376,9 @@ Every step's exact mechanism is in the [Tool reference](#tool-reference) above �
 
 **Phase 2 — repair the pipeline** (ASK, RESOLVE, FIX, LLM-FIX): ASK only surfaces what GRAPH/CAPTURE genuinely couldn't resolve from disk. FIX is bounded, not an unconditional retry loop — the deterministic dispatcher runs up to 10 iterations, the LLM dispatcher up to 5, and the LLM step itself gives up after 3 stalled proposals (see **FIX (deterministic)** and **LLM-FIX** in the Tool reference). A run that still fails after that is reported as failed, not retried indefinitely.
 
-**Phase 3 — validate natively** (RUN, VALIDATE): VALIDATE checks that every exhibit exists on disk after the run — it does **not** delete stale outputs first; a leftover file from a previous run that the current run never touches will still read as "present." FIDELITY (content-hash comparison against a reference) exists and is tested but is not called here by default — see its entry in the Tool reference and [§11](#11-open-questions).
+**Phase 3 — validate natively** (RUN, VALIDATE): VALIDATE checks that every exhibit exists on disk after the run — it does **not** delete stale outputs first; a leftover file from a previous run that the current run never touches will still read as "present."
 
-**Phase 4 — clean and containerize** (CLEAN, RNG-CHECK, MIXED-LANGUAGE-CHECK, SORT-CHECK, GENERATE, BUILD, VALIDATE container): the three non-blocking checks run right after CLEAN, before Docker — see their entries in the Tool reference for what each one matches. GENERATE/BUILD write and build a `Dockerfile` and `.dockerignore`; there is no separate `run.sh` or `docker-compose.yml` file — the equivalent `docker run` invocation (volume mount, license bind-mount, platform flag) is built and executed in-process by `docker.py`, not materialized as a standalone script.
+**Phase 4 — clean and containerize** (CLEAN, RNG-CHECK, MIXED-LANGUAGE-CHECK, SORT-CHECK, FIDELITY, GENERATE, BUILD, VALIDATE container): the three non-blocking static checks run right after CLEAN, before Docker — see their entries in the Tool reference for what each one matches. FIDELITY runs last of the four, after them — content-hash comparison against an author-supplied reference, only if `reference_exhibit_dirs` was given at intake; see its own entry in the Tool reference. GENERATE/BUILD write and build a `Dockerfile` and `.dockerignore`; there is no separate `run.sh` or `docker-compose.yml` file — the equivalent `docker run` invocation (volume mount, license bind-mount, platform flag) is built and executed in-process by `docker.py`, not materialized as a standalone script.
 
 **Phase 5 — deliver** (DELIVER): writes the final `README`, `DELIVERY_REPORT.md`, and a `.zip` of the working copy — see [§9](#9-output-files) for the exact file list.
 
@@ -522,10 +526,7 @@ Pure automation gets adoption but leaves the researcher unable to explain or cha
 
 Gaps identified while auditing this README against the actual implementation — real missing features, not yet built, listed here instead of described as current behavior elsewhere in this document:
 
-- **FIDELITY wiring: what counts as the reference.** `check_exhibit_fidelity()` exists and is tested (see its entry in the Tool reference) but isn't called by `run_pipeline()`/`deadreckoning run`, and a fresh working copy has no "last known good" copy of anything by construction. The check compares exhibit *files* byte-for-byte (a `Table1.tex` fragment, a `fig1.pdf`) — so the only reference that actually works today is the exhibit file itself, as it stood when the paper was accepted. Two intake additions follow from that, worth distinguishing because they solve different problems:
-  - **"Where is a preserved snapshot of your `output/` exhibits as they were at acceptance?"** (a git tag, an Overleaf revision, a dated zip, the actual submission folder) — if the author has this, FIDELITY can hash-compare against it with zero new code.
-  - **"Where is your last accepted/compiled PDF?"** — nearly everyone has this, but the PDF doesn't give a directly comparable exhibit file; using it as a reference would mean extracting/cropping the relevant page and doing a visual or text diff, not a hash compare — real new work, not just an intake question.
-  - If neither exists anywhere — no preserved exhibit snapshot and the accepted PDF is the only record — DeadReckoning cannot help with FIDELITY for that paper. There is no reference to reconstruct one from; this has to be stated plainly to the author rather than silently skipped.
+- **FIDELITY is now wired** (`reference_exhibit_dirs` at intake → `fidelity_check.py` → `check_exhibit_fidelity()`, see Tool reference) using a preserved exhibit snapshot as the reference, matched by basename, with collisions surfaced rather than silently resolved. Two things deliberately not done as part of that: (1) using the accepted compiled PDF itself as a fallback reference — would need page extraction and a visual/text diff, a different and harder mechanism than the byte compare this is built on; (2) threading `reference_exhibit_dirs` into CLEAN's reachable-set, so a reference directory living inside the working copy doesn't get listed as orphaned in `CLEANUP.md` (see FIDELITY's "known limitation" in the Tool reference) — a natural follow-up, not done here.
 - **Restricted data: hard-abort only.** Today a restricted-data signal stops the pipeline before any copy is made — see [§4](#4-confidentiality-and-restricted-data). A graduated mode (read structure, not content; filter logs; generate a synthetic substitute automatically) would let authors with restricted data use more of this tool, but none of that exists today and would need real design, not just a transmission-rules table.
 - **No disk-space check before copying**, and no git-based undo inside the working copy — see [§5.1](#51-safety-working-copy-first-always). A copy that fails partway through a too-large project isn't currently detected in advance.
 - **VALIDATE doesn't delete stale outputs first.** A leftover file from a previous run can read as "present" even if the current run never touched it.

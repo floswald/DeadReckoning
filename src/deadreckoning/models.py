@@ -243,6 +243,11 @@ class IntakeResult(BaseModel):
     code_root: Optional[str] = None             # §3 item 2
     data_root: Optional[str] = None             # §3 item 2
     master_script: Optional[str] = None         # entry point that runs the full analysis
+    # Directory/directories (one or more) holding the output exhibits as they
+    # stood when the paper was accepted — the reference FIDELITY compares
+    # regenerated exhibits against. Empty if the author has nothing preserved
+    # separately from the working project; FIDELITY then simply doesn't run.
+    reference_exhibit_dirs: list[str] = Field(default_factory=list)
     last_run_date: Optional[str] = None         # §3 item 5 — free text, e.g. "March 2023"
     languages_claimed: list[str] = Field(default_factory=list)   # §3 item 6
     has_stata_license: Optional[bool] = None    # §3 item 6

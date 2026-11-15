@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from deadreckoning.ask import _contradiction_questions, identify_questions
-from deadreckoning.intake import _parse_bool, _parse_list, questionnaire
+from deadreckoning.intake import _parse_bool, _parse_list, _parse_path_list, questionnaire
 from deadreckoning.models import (
     DependencyGraph,
     EnvSpec,
@@ -121,6 +121,24 @@ class TestQuestionnaire:
         assert result.paper_tex_path is None
         assert result.last_run_date is None
         assert result.data_root is None
+        assert result.reference_exhibit_dirs == []
+
+    def test_reference_exhibit_dirs_parsed_from_comma_separated_paths(self):
+        result = questionnaire(answers={
+            "restricted_data": "no",
+            "reference_exhibit_dirs": "/Users/jane/old_submission/figs, /Users/jane/old_submission/tables",
+        })
+        assert result.reference_exhibit_dirs == [
+            "/Users/jane/old_submission/figs",
+            "/Users/jane/old_submission/tables",
+        ]
+
+    def test_reference_exhibit_dirs_single_path_not_shredded(self):
+        result = questionnaire(answers={
+            "restricted_data": "no",
+            "reference_exhibit_dirs": "/Users/jane/old_submission",
+        })
+        assert result.reference_exhibit_dirs == ["/Users/jane/old_submission"]
 
     def test_languages_parsed_from_comma_separated(self):
         result = questionnaire(answers={"restricted_data": "no", "languages_claimed": "R, Python, Julia"})
@@ -182,6 +200,37 @@ class TestParseHelpers:
 
     def test_parse_list_slash(self):
         assert _parse_list("R/Stata") == ["R", "Stata"]
+
+
+# ---------------------------------------------------------------------------
+# _parse_path_list — unlike _parse_list, must preserve '/' and spaces within
+# a single path, splitting only on commas/newlines.
+# ---------------------------------------------------------------------------
+
+
+class TestParsePathList:
+    def test_single_absolute_path_not_shredded(self):
+        assert _parse_path_list("/Users/jane/Dropbox/output") == [
+            "/Users/jane/Dropbox/output"
+        ]
+
+    def test_comma_separated_absolute_paths(self):
+        assert _parse_path_list("/Users/jane/figs, /Users/jane/tables") == [
+            "/Users/jane/figs",
+            "/Users/jane/tables",
+        ]
+
+    def test_path_with_space_preserved(self):
+        assert _parse_path_list("/Users/jane/My Drive/output") == [
+            "/Users/jane/My Drive/output"
+        ]
+
+    def test_newline_separated(self):
+        assert _parse_path_list("/a/b\n/c/d") == ["/a/b", "/c/d"]
+
+    def test_empty(self):
+        assert _parse_path_list("") == []
+        assert _parse_path_list("   ") == []
 
 
 # ---------------------------------------------------------------------------
