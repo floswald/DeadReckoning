@@ -1,10 +1,12 @@
 # DeadReckoning presentation demo
 
-Five segments, ~10 minutes total. All drive the real pipeline
+Six segments, ~12 minutes total. All drive the real pipeline
 (`run_pipeline` / `deadreckoning run`), not hand-built objects. The first
 three rig a broken/renamed path that crashes and gets fixed live by an
 LLM; the fourth and fifth are the harder case — nothing crashes, the
-numbers are just silently wrong.
+numbers are just silently wrong; the sixth is three independent static
+leads surfaced before anything runs, in a package mixing three
+languages.
 
 ## 1. Toy package — `run_demo.py`
 
@@ -333,11 +335,75 @@ suspect to name. No Docker, no `ANTHROPIC_API_KEY` needed.
 
 Needs a local Stata install for the native RUN step, same as segment 3.
 
+## 6. Rcpp mixed-language package — `run_demo_rcpp_rng.py`
+
+Different failure shape again: three languages (Stata, R, Rcpp/C++) in
+one small package, three independent reproducibility gaps, all found
+*statically, before any native run even starts* — not one crash, not one
+exhibit fidelity mismatch to trigger an investigation.
+
+`code/stata/prep_survey.do` picks one "anchor" respondent per region
+from a household survey; `code/simulate.R` reads that anchor and calls a
+compiled Rcpp routine, `src/shocks.cpp`, to simulate income shocks
+around it, producing Table 1 and Figure 1.
+
+```bash
+python3 demo/run_demo_rcpp_rng.py           # full step-by-step narration
+python3 demo/run_demo_rcpp_rng.py --terse   # one line per step
+```
+
+Three gaps, each its own check, each its own `.md` file:
+
+1. **SORT-CHECK (new)** — `prep_survey.do` sorts on a non-unique key
+   (`sort region`, three respondents per region) with no `, stable` and
+   no `set sortseed`, then picks "first observation per group"
+   (`by region: keep if _n==1`). Stata's default sort breaks ties with
+   an internal random tiebreaker, not guaranteed stable across runs,
+   Stata editions, or machines — confirmed via Stata's own `sortseed`
+   docs and `help sort`, not invented. The new `sort_check.py` this demo
+   exists to showcase.
+2. **MIXED-LANGUAGE-CHECK (existing)** — `src/shocks.cpp` is
+   Rcpp-embedded C++ with no `src/Makevars` anywhere in the package;
+   `sourceCpp()` auto-compiles it with R's default flags regardless, so
+   this doesn't crash — but the file's own comment records the author's
+   personal machine actually built it with an unrecorded
+   `-fopenmp -O3`. Non-blocking, same posture as every other check in
+   this module.
+3. **RNG-CHECK (existing, extended for this demo)** — `shocks.cpp` calls
+   `Rcpp::rnorm()`, which draws from R's own RNG stream, with no
+   `set.seed()` anywhere upstream. `rng_check.py`'s C++ patterns
+   previously only caught `std::rand()`/`<random>` engines; Rcpp/R-API
+   RNG patterns (`Rcpp::rnorm`, `R::rnorm`, `norm_rand`, `unif_rand`, …)
+   are new, specifically for this case.
+
+Also shows **COMPILE-CHECK**, the blocking "compiled source with no
+build script" gap, correctly staying silent here: `compile_check.py` now
+exempts Rcpp-embedded sources (`// [[Rcpp::...]]` / `#include <Rcpp.h>`)
+from that gap, since `sourceCpp()` genuinely is the build step — without
+that fix, this fixture would halt at ASK before ever reaching the three
+checks above.
+
+Of the three gaps, only the missing seed is live in this fixture — RUN
+regenerates Table 1 with a fresh, different `Rcpp::rnorm()` draw every
+single time, so **FIDELITY** always catches a mismatch against the
+baked-in reference. But FIDELITY's own mtime-based localization points
+at two upstream files that never actually changed content — pure noise,
+because the real cause isn't an upstream file at all. The actual
+explanation is the RNG-CHECK finding, already written to disk before
+this run even started. See `demo/rcpp_rng/README.md` for why the other
+two gaps are real but deliberately not made live in the same run (mixing
+more than one numeric cause into one exhibit would make the mismatch
+impossible to attribute to anything specific).
+
+No LLM fix-loop act — nothing here crashes. No Docker, no
+`ANTHROPIC_API_KEY` needed. Needs a local Stata install, R with `Rcpp`
+and `haven`, and a C++ compiler for the native RUN step.
+
 ## Notes
 
-- None of the five scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
-  `demo/landuse_real/`, `demo/coauthor_drift/`, or `demo/landuse_fanout/`
-  directly — the pipeline always works on a temp copy, printed as
-  "Working copy" in the output.
-- All five scripts write `DATA-EXHIBIT-MAP.md` into that working copy
+- None of the six scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
+  `demo/landuse_real/`, `demo/coauthor_drift/`, `demo/landuse_fanout/`, or
+  `demo/rcpp_rng/` directly — the pipeline always works on a temp copy,
+  printed as "Working copy" in the output.
+- All six scripts write `DATA-EXHIBIT-MAP.md` into that working copy
   (the generated data availability statement).
