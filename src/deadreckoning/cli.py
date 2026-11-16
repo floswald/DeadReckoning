@@ -298,6 +298,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if not args.json:
         print(_bold(f"\nRunning pipeline — {project.name}"))
 
+    # Approval gate for LLM-FIX (#28): auto-approve if asked, or if stdin
+    # isn't a TTY (same fail-safe pattern as _collect_intake) — otherwise
+    # run_pipeline's default is the real interactive y/n prompt.
+    approve_fn = None
+    if getattr(args, "auto_approve_fixes", False) or not sys.stdin.isatty():
+        approve_fn = lambda action: True
+
     result = run_pipeline(
         project,
         master_script=args.master_script or None,
@@ -306,6 +313,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         stata_license=Path(args.stata_license) if args.stata_license else None,
         intake=intake,
         stop_after=args.stop_after,
+        approve_fn=approve_fn,
     )
 
     if not args.json:
@@ -506,6 +514,10 @@ def main() -> None:
     p_run.add_argument("--stop-after", metavar="STEP", choices=STOP_AFTER_STEPS, default=None,
                        help=f"Halt right after the named step, for narrating one step at a "
                             f"time (choices: {', '.join(STOP_AFTER_STEPS)})")
+    p_run.add_argument("--auto-approve-fixes", action="store_true",
+                       help="Apply every LLM-FIX proposal without a per-action y/n prompt "
+                            "(default: off — approval required). Also used automatically "
+                            "when stdin isn't a TTY.")
     p_run.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # detect-stata

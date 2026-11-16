@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, Optional
 
 from .ask import run_ask_step
 from .capture import capture_env
@@ -21,7 +22,7 @@ from .data_profile import profile_data_files, render_data_structure_summary, wri
 from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fidelity_check import FidelityCheckResult, run_fidelity_check_step
-from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
+from .fix_loop import FixAction, FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
 from .llm_dispatcher import LLMDispatcher
 from .llm_gap_hints import GapHintDispatcher
@@ -116,6 +117,7 @@ def run_pipeline(
     stata_license: Path | None = None,
     stata_image: str | None = None,
     stop_after: str | None = None,
+    approve_fn: Optional[Callable[[FixAction], bool]] = None,
 ) -> PipelineResult:
     """
     Run the full DeadReckoning pipeline on a copy of project_root.
@@ -296,6 +298,7 @@ def run_pipeline(
             dispatcher=LLMDispatcher(restricted=result.restricted.is_restricted),
             master_script=master_script,
             initial_stderr=result.native_run.stderr,
+            approve_fn=approve_fn,
         )
         result.llm_fix_loop = llm_result
         append_fix_report(working_copy, llm_result)
@@ -354,6 +357,7 @@ def run_pipeline(
         master_script=master_script,
         stata_license=stata_license,
         restricted=result.restricted.is_restricted,
+        approve_fn=approve_fn,
     )
     if result.docker_fix.final_build is not None:
         result.dockerfile = result.docker_fix.final_build.dockerfile_text

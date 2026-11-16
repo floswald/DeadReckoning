@@ -28,6 +28,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         skip_intake=True,
         restricted_override=None,
         stop_after=None,
+        auto_approve_fixes=False,
         json=True,
     )
     defaults.update(overrides)
@@ -160,3 +161,32 @@ def test_cmd_run_skip_intake_relies_on_filename_only(tmp_path: Path, capsys) -> 
 
     assert payload["restricted"]["is_restricted"] is False
     assert payload["intake"] is None
+
+
+# ---------------------------------------------------------------------------
+# #28 — --auto-approve-fixes reaches run_pipeline as a working callable
+# ---------------------------------------------------------------------------
+
+
+def test_auto_approve_fixes_flag_reaches_run_pipeline(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+
+    captured = {}
+
+    def fake_run_pipeline(*args, **kwargs):
+        captured["approve_fn"] = kwargs.get("approve_fn")
+        from deadreckoning.orchestrator import PipelineResult
+        from deadreckoning.models import RestrictedStatus
+        return PipelineResult(
+            project_root=tmp_path, working_copy=tmp_path,
+            restricted=RestrictedStatus(is_restricted=False),
+        )
+
+    monkeypatch.setattr("deadreckoning.orchestrator.run_pipeline", fake_run_pipeline)
+
+    args = _make_args(project=str(tmp_path), skip_intake=True, auto_approve_fixes=True)
+    _cmd_run(args)
+
+    approve_fn = captured["approve_fn"]
+    assert approve_fn is not None
+    assert approve_fn(object()) is True

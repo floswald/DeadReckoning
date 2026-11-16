@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional, Protocol, runtime_checkable
+from typing import Callable, Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from .confidentiality import parse_yes_no
 from .models import DependencyGraph, EnvSpec, Gap, GapKind, PackageSpec
 
 
@@ -213,6 +214,8 @@ class FixLoopResult(BaseModel):
     final_gaps: list[Gap] = Field(default_factory=list)
     error: Optional[str] = None
     llm_reasoning: list[str] = Field(default_factory=list)
+    stopped_by_author: bool = False
+    rejected_action: Optional[FixAction] = None
 
 
 # ---------------------------------------------------------------------------
@@ -274,14 +277,24 @@ def run_fix_loop(
 # ---------------------------------------------------------------------------
 
 
+def _default_approve_fn(action: FixAction) -> bool:
+    """Interactive per-fix approval — see issue #28. `y`/`yes`/`true`/`1`
+    applies and continues; anything else stops the loop without applying."""
+    change = action.new_path or action.package_version or action.write_call or "—"
+    print(f"\n[dr] proposed fix: {action.kind}  script={action.script or '—'}  -> {change}")
+    raw = input("Apply this fix? [y/n]: ")
+    return parse_yes_no(raw)
+
+
 def run_llm_fix_loop(
     working_copy: Path,
     graph: DependencyGraph,
     env_spec: Optional[EnvSpec] = None,
     dispatcher: Optional[Dispatcher] = None,
     master_script: str = "code/run.R",
-    max_iterations: int = 5,
+    max_iterations: Optional[int] = None,
     initial_stderr: Optional[str] = None,
+    approve_fn: Optional[Callable[[FixAction], bool]] = None,
 ) -> tuple[FixLoopResult, DependencyGraph]:
     """
     Run FIX loop with actual script re-execution after each fix.
@@ -289,6 +302,13 @@ def run_llm_fix_loop(
     `initial_stderr` should be the stderr from the run that triggered this loop —
     without it, iteration 0 has no gaps and no stderr, so the dispatcher never
     even sees the original failure.
+
+    Each proposed fix is gated on `approve_fn` (default: interactive y/n
+    prompt) — the author is the stopping condition, not `max_iterations`
+    (unbounded by default; still overridable as a safety valve). `y`
+    applies and continues; `n` stops immediately without applying that
+    fix (`result.stopped_by_author`, `result.rejected_action`). See #28.
+
     Returns (result, updated_graph).
     """
     from .graph import build_graph
@@ -297,12 +317,15 @@ def run_llm_fix_loop(
     if dispatcher is None:
         from .llm_dispatcher import LLMDispatcher
         dispatcher = LLMDispatcher()
+    if approve_fn is None:
+        approve_fn = _default_approve_fn
 
     result = FixLoopResult()
     current_graph = graph
     last_stderr: Optional[str] = initial_stderr
+    iteration = 0
 
-    for iteration in range(max_iterations):
+    while True:
         result.iterations = iteration + 1
         context = FixContext(
             working_copy=working_copy,
@@ -316,6 +339,11 @@ def run_llm_fix_loop(
         action = dispatcher.next_fix(current_graph.gaps, context)
         if action is None:
             result.converged = True
+            break
+
+        if not approve_fn(action):
+            result.stopped_by_author = True
+            result.rejected_action = action
             break
 
         applied = apply_fix(working_copy, action, env_spec)
@@ -336,8 +364,11 @@ def run_llm_fix_loop(
         if run.success:
             result.converged = True
             break
-    else:
-        result.error = f"Did not converge after {max_iterations} iterations"
+
+        iteration += 1
+        if max_iterations is not None and iteration >= max_iterations:
+            result.error = f"Did not converge after {max_iterations} iterations"
+            break
 
     result.final_gaps = list(current_graph.gaps)
     return result, current_graph
@@ -371,6 +402,14 @@ def append_fix_report(working_copy: Path, fix_result: FixLoopResult) -> None:
 
     if fix_result.error:
         lines.append(f"\n**Warning:** {fix_result.error}")
+
+    if fix_result.stopped_by_author:
+        ra = fix_result.rejected_action
+        rejected_desc = f"`{ra.kind}` on `{ra.script or '—'}`" if ra is not None else "—"
+        lines.append(
+            f"\nStopped by author after {len(fix_result.fixes_applied)} fix(es); "
+            f"next proposal rejected: {rejected_desc}."
+        )
 
     if fix_result.final_gaps:
         lines.append(f"\nRemaining gaps after FIX ({len(fix_result.final_gaps)}):")

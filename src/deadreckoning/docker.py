@@ -13,8 +13,9 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
+from .fix_loop import FixAction
 from .models import DependencyGraph, EnvSpec, Gap, GapKind
 from .runner import RunResult, ValidationResult
 
@@ -624,6 +625,7 @@ def run_docker_fix_loop(
     master_script: Optional[str] = None,
     stata_license: Optional[Path] = None,
     restricted: bool = False,
+    approve_fn: Optional[Callable[[FixAction], bool]] = None,
 ) -> DockerFixResult:
     """
     Build → run → check → fix → repeat.
@@ -685,6 +687,7 @@ def run_docker_fix_loop(
             project_root, graph, env_spec,
             dispatcher=LLMDispatcher(restricted=restricted),
             master_script=master_script or _default_master_script(language.upper(), project_root),
+            approve_fn=approve_fn,
         )
         result.dockerfile_fixes.extend(
             f"llm:{f.kind}:{f.script or f.package_name or '—'}"
