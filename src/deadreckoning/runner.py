@@ -109,47 +109,38 @@ def _run_compiled(
     )
 
 
-def _run_r(project_root: Path, master_script: str) -> RunResult:
-    result = subprocess.run(
-        ["Rscript", master_script],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
+def _run_subprocess(cmd: list[str], cwd: Path, interpreter_label: str) -> RunResult:
+    """subprocess.run wrapped into a RunResult, with the interpreter simply
+    not being installed turned into a normal (non-crashing) failure result
+    instead of an uncaught FileNotFoundError — the same "not found" posture
+    _run_matlab()/_run_stata() already get from detect_matlab()/
+    detect_stata() before they ever shell out."""
+    try:
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    except FileNotFoundError:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=f"{interpreter_label!r} not found on PATH — is it installed?",
+        )
     return RunResult(
         returncode=result.returncode,
         stdout=result.stdout,
         stderr=result.stderr,
     )
+
+
+def _run_r(project_root: Path, master_script: str) -> RunResult:
+    return _run_subprocess(["Rscript", master_script], project_root, "Rscript")
 
 
 def _run_julia(project_root: Path, master_script: str) -> RunResult:
-    result = subprocess.run(
-        ["julia", master_script],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    return RunResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return _run_subprocess(["julia", master_script], project_root, "julia")
 
 
 def _run_python(project_root: Path, master_script: str) -> RunResult:
     import sys
-    result = subprocess.run(
-        [sys.executable, master_script],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    return RunResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return _run_subprocess([sys.executable, master_script], project_root, sys.executable)
 
 
 def _run_shell(project_root: Path, master_script: str) -> RunResult:
@@ -170,17 +161,7 @@ def _run_shell(project_root: Path, master_script: str) -> RunResult:
     before Stata, R, or Julia ever run.
     """
     script_path = project_root / master_script
-    result = subprocess.run(
-        ["bash", str(script_path)],
-        cwd=script_path.parent,
-        capture_output=True,
-        text=True,
-    )
-    return RunResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return _run_subprocess(["bash", str(script_path)], script_path.parent, "bash")
 
 
 def _run_matlab(project_root: Path, master_script: str) -> RunResult:
