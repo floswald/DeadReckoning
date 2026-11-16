@@ -70,6 +70,7 @@ def test_scan_finds_no_external_paths():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 @pytest.mark.llm
 def test_demo_script_runs_end_to_end(capsys):
     api_key = os.environ.get("ANTHROPIC_API_KEY")

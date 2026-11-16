@@ -71,6 +71,7 @@ def test_graph_sees_one_shared_data_file_referenced_by_both_scripts():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_demo_script_runs_end_to_end_and_discriminates_3_3(capsys):
     import run_demo_landuse_fanout
 
