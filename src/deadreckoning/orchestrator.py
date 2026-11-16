@@ -17,12 +17,15 @@ from .capture import capture_env
 from .clean import run_clean_step
 from .compile_check import check_compiled_language_build
 from .confidentiality import check_restricted
+from .data_profile import profile_data_files, render_data_structure_summary, write_data_structure_summary
 from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
 from .fidelity_check import FidelityCheckResult, run_fidelity_check_step
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
-from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
+from .llm_dispatcher import LLMDispatcher
+from .llm_gap_hints import GapHintDispatcher
+from .models import AuthorQA, CleanResult, DataProfileResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
 from .provenance import render_data_exhibit_map, trace_exhibit_inputs, write_data_exhibit_map
 from .mixed_language_check import MixedLanguageCheckResult, run_mixed_language_check_step
 from .resolve import ResolveResult, resolve_paths
@@ -38,6 +41,7 @@ class PipelineResult:
     working_copy: Path
     restricted: RestrictedStatus
     graph: DependencyGraph | None = None
+    data_profile: DataProfileResult | None = None
     provenance: dict[Path, list[Path]] | None = None
     env_spec: EnvSpec | None = None
     scan: ScanResult | None = None
@@ -138,49 +142,40 @@ def run_pipeline(
     if master_script is None:
         master_script = (intake.master_script if intake else None) or _detect_master_script(project_root)
 
-    # Step 1: confidentiality gate — check BEFORE making working copy (spec §4.1)
+    # Step 1: confidentiality gate. Restricted data no longer aborts the
+    # pipeline (see #27) — GRAPH/CAPTURE/SCAN/RESOLVE/RUN/VALIDATE/Docker
+    # are all 100%-local already, restricted or not. Instead,
+    # `restricted.is_restricted` is threaded through as the single source
+    # of truth for "LLM off for the rest of this run" — no new boolean
+    # field, so nothing can drift out of sync with the audit trail below.
+    #
     # The author's own answer takes priority over the filename heuristic —
     # ask before opening anything means "believe them," not "double-check first."
     if intake is not None and intake.restricted_data:
-        return PipelineResult(
-            project_root=project_root,
-            working_copy=project_root,  # sentinel — no copy was made
-            restricted=RestrictedStatus(
-                is_restricted=True,
-                reason="Author confirmed restricted/confidential data during intake questionnaire",
-            ),
-            intake=intake,
-            error="Restricted data detected: author confirmed via intake questionnaire",
-        )
-
-    # check_restricted reads filenames only, no file contents opened.
-    restricted = check_restricted(project_root)
-    if restricted.is_restricted:
-        # §4.2 — a filename match (census, psid, nda, ...) is a lead, not
-        # proof: legitimate public-use extracts are named this way too.
-        # Only abort if that's still the live verdict — either no re-ask
-        # has happened yet (restricted_override_safe is None, the fail-safe
-        # default), or the author was re-asked and confirmed it really is
-        # restricted. If the author was re-asked and confirmed this
-        # specific hit is NOT restricted data, proceed normally instead
-        # of silently flipping into restricted mode.
-        if intake is None or not intake.restricted_override_safe:
-            return PipelineResult(
-                project_root=project_root,
-                working_copy=project_root,  # sentinel — no copy was made
-                restricted=restricted,
-                intake=intake,
-                error=f"Restricted data detected: {restricted.reason}",
-            )
-        # Overridden: author re-confirmed this specific hit is a false
-        # positive. Record that in the audit trail, but report DETECT as
-        # cleared, not restricted — the pipeline is proceeding normally.
         restricted = RestrictedStatus(
-            is_restricted=False,
-            reason=f"Filename heuristic hit ({restricted.reason}) — "
-                   f"author confirmed false positive, see §4.2",
-            trigger_path=restricted.trigger_path,
+            is_restricted=True,
+            reason="Author confirmed restricted/confidential data during intake questionnaire",
         )
+    else:
+        # check_restricted reads filenames only, no file contents opened.
+        restricted = check_restricted(project_root)
+        if restricted.is_restricted:
+            # §4.2 — a filename match (census, psid, nda, ...) is a lead, not
+            # proof: legitimate public-use extracts are named this way too.
+            # Stay restricted unless the author was specifically re-asked
+            # about this hit and confirmed it's a false positive
+            # (restricted_override_safe) — the fail-safe default
+            # (None/unset) is to stay restricted.
+            if intake is not None and intake.restricted_override_safe:
+                # Overridden: author re-confirmed this specific hit is a
+                # false positive. Record that in the audit trail, but
+                # report DETECT as cleared, not restricted.
+                restricted = RestrictedStatus(
+                    is_restricted=False,
+                    reason=f"Filename heuristic hit ({restricted.reason}) — "
+                           f"author confirmed false positive, see §4.2",
+                    trigger_path=restricted.trigger_path,
+                )
 
     # Always work on a copy — original is never touched
     tmpdir = Path(tempfile.mkdtemp(prefix="dr_"))
@@ -215,6 +210,13 @@ def run_pipeline(
     result.provenance = trace_exhibit_inputs(result.graph)
     write_data_exhibit_map(working_copy, render_data_exhibit_map(result.provenance))
 
+    # Step 2c: local-only data-structure profile (row counts/columns, never
+    # cell values, never transmitted) — only load-bearing for restricted
+    # projects, so only generated for them.
+    if result.restricted.is_restricted:
+        result.data_profile = profile_data_files(working_copy, result.graph)
+        write_data_structure_summary(working_copy, render_data_structure_summary(result.data_profile))
+
     if stop_after == "graph":
         return result
 
@@ -246,12 +248,24 @@ def run_pipeline(
     ):
         result.env_spec.packages.append(PackageSpec(name="here", pin_method=PinMethod.unknown))
 
+    if result.restricted.is_restricted:
+        # AGENT_REPORT.md already exists after resolve_paths — append here so
+        # the note lands even if ASK below ends the run early for author input.
+        with (working_copy / "AGENT_REPORT.md").open("a") as f:
+            f.write(
+                "\n## Restricted mode\n\n"
+                "Restricted mode: LLM-FIX and ASK hints were disabled for this run "
+                "(confidential/restricted data detected). "
+                "See `DATA-STRUCTURE-SUMMARY.md`.\n"
+            )
+
     if stop_after == "resolve":
         return result
 
     # Step 5b: ASK — surface gaps that require author input
     result.ask, result.needs_author_input, result.graph, result.env_spec = run_ask_step(
-        working_copy, result.graph, result.env_spec, result.scan, intake=intake
+        working_copy, result.graph, result.env_spec, result.scan, intake=intake,
+        hint_dispatcher=GapHintDispatcher(restricted=result.restricted.is_restricted),
     )
     if result.needs_author_input:
         result.error = "Author input required: see QUESTIONS.md in working copy"
@@ -279,6 +293,7 @@ def run_pipeline(
             working_copy,
             result.graph,
             result.env_spec,
+            dispatcher=LLMDispatcher(restricted=result.restricted.is_restricted),
             master_script=master_script,
             initial_stderr=result.native_run.stderr,
         )
@@ -338,6 +353,7 @@ def run_pipeline(
         image_tag=docker_tag,
         master_script=master_script,
         stata_license=stata_license,
+        restricted=result.restricted.is_restricted,
     )
     if result.docker_fix.final_build is not None:
         result.dockerfile = result.docker_fix.final_build.dockerfile_text

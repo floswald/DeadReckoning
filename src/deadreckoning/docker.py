@@ -623,6 +623,7 @@ def run_docker_fix_loop(
     platform: Optional[str] = None,
     master_script: Optional[str] = None,
     stata_license: Optional[Path] = None,
+    restricted: bool = False,
 ) -> DockerFixResult:
     """
     Build → run → check → fix → repeat.
@@ -679,8 +680,10 @@ def run_docker_fix_loop(
         # Run succeeded but outputs missing — try LLM fix on working copy then rebuild
         from .fix_loop import run_llm_fix_loop
         from .graph import build_graph
+        from .llm_dispatcher import LLMDispatcher
         llm_result, graph = run_llm_fix_loop(
             project_root, graph, env_spec,
+            dispatcher=LLMDispatcher(restricted=restricted),
             master_script=master_script or _default_master_script(language.upper(), project_root),
         )
         result.dockerfile_fixes.extend(

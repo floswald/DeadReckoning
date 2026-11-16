@@ -105,6 +105,25 @@ class DataFile(BaseModel):
     mtime: Optional[float] = None         # filesystem mtime at graph-build time
 
 
+class DataFileProfile(BaseModel):
+    """
+    Structure-only summary of one data file — row count and column names,
+    never cell values. Generated locally (data_profile.py) and never
+    transmitted anywhere; exists so a restricted-data author gets *some*
+    visibility into their own data without the pipeline opening it on
+    their behalf in a way that could leak. See issue #27.
+    """
+    path: Path
+    exists_on_disk: bool
+    row_count: Optional[int] = None
+    columns: Optional[list[str]] = None
+    note: Optional[str] = None  # e.g. "structure not introspectable without an additional dependency"
+
+
+class DataProfileResult(BaseModel):
+    profiles: list[DataFileProfile] = Field(default_factory=list)
+
+
 class OrphanFile(BaseModel):
     path: Path
     kind: str   # "script", "data", "output"

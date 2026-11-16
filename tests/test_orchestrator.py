@@ -22,7 +22,8 @@ from deadreckoning.orchestrator import _detect_master_script, run_pipeline
 
 
 def test_restricted_aborts_before_copy(tmp_path: Path) -> None:
-    """No working copy must be created when restricted data is detected."""
+    """Restricted data no longer aborts (#27) — a working copy IS created,
+    and the pipeline keeps running (with LLM off for the rest of the run)."""
     # Create a minimal project with a restricted-sounding filename
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "census_pii_microdata.dta").write_bytes(b"")
@@ -36,22 +37,22 @@ def test_restricted_aborts_before_copy(tmp_path: Path) -> None:
     new_tmpdirs = snapshot_after - snapshot_before
 
     assert result.restricted.is_restricted, "Should have detected restricted data"
-    assert result.error is not None
-    assert "restricted" in result.error.lower()
-    assert new_tmpdirs == set(), (
-        "No dr_* working-copy directory should have been created — "
-        f"found: {new_tmpdirs}"
-    )
+    assert result.error is None
+    assert new_tmpdirs != set(), "A dr_* working-copy directory should have been created"
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
 
 
 def test_restricted_working_copy_sentinel(tmp_path: Path) -> None:
-    """When aborted early, working_copy is set to project_root (sentinel)."""
+    """Restricted no longer means working_copy is the sentinel project_root —
+    a real copy is made, same as any other run."""
     (tmp_path / "nlsy_confidential.dta").write_bytes(b"")
 
     result = run_pipeline(tmp_path, skip_run=True, skip_docker=True)
 
     assert result.restricted.is_restricted
-    assert result.working_copy == tmp_path
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
 
 
 def test_non_restricted_creates_working_copy(tmp_path: Path) -> None:
@@ -84,7 +85,8 @@ def test_restricted_original_untouched(tmp_path: Path) -> None:
 
 
 def test_intake_restricted_yes_aborts_before_copy_no_filename_trigger(tmp_path: Path) -> None:
-    """Author says yes; nothing in the filenames would ever catch it."""
+    """Author says yes; nothing in the filenames would ever catch it. The
+    pipeline still proceeds (#27) — restricted just means LLM off."""
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "wages.csv").write_bytes(b"")  # innocuous name
     (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
@@ -99,13 +101,9 @@ def test_intake_restricted_yes_aborts_before_copy_no_filename_trigger(tmp_path: 
     new_tmpdirs = snapshot_after - snapshot_before
 
     assert result.restricted.is_restricted
-    assert result.error is not None
-    assert "restricted" in result.error.lower()
-    assert result.working_copy == tmp_path  # sentinel — no copy made
-    assert new_tmpdirs == set(), (
-        "No dr_* working-copy directory should have been created — "
-        f"found: {new_tmpdirs}"
-    )
+    assert result.error is None
+    assert result.working_copy != tmp_path
+    assert new_tmpdirs != set(), "A dr_* working-copy directory should have been created"
 
 
 def test_intake_restricted_no_proceeds_normally(tmp_path: Path) -> None:
@@ -129,8 +127,8 @@ def test_intake_restricted_no_proceeds_normally(tmp_path: Path) -> None:
 
 
 def test_filename_hit_without_override_still_aborts(tmp_path: Path) -> None:
-    """No re-ask has happened (intake=None) — fail-safe default is to abort,
-    unchanged from before this existed."""
+    """No re-ask has happened (intake=None) — fail-safe default is to stay
+    restricted (LLM off), but the pipeline still proceeds (#27), not aborts."""
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "census_extract.csv").write_bytes(b"")
     (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
@@ -138,7 +136,8 @@ def test_filename_hit_without_override_still_aborts(tmp_path: Path) -> None:
     result = run_pipeline(tmp_path, skip_run=True, skip_docker=True)
 
     assert result.restricted.is_restricted
-    assert result.working_copy == tmp_path
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
 
 
 def test_filename_hit_with_override_safe_proceeds(tmp_path: Path) -> None:
@@ -165,7 +164,8 @@ def test_filename_hit_with_override_safe_proceeds(tmp_path: Path) -> None:
 
 def test_filename_hit_override_unset_still_aborts(tmp_path: Path) -> None:
     """restricted_override_safe defaults to None — a filename hit must still
-    abort unless the author was actually re-asked and said it's safe."""
+    be treated as restricted (LLM off) unless the author was actually
+    re-asked and said it's safe. The pipeline still proceeds either way (#27)."""
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "census_extract.csv").write_bytes(b"")
     (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
@@ -175,7 +175,56 @@ def test_filename_hit_override_unset_still_aborts(tmp_path: Path) -> None:
     result = run_pipeline(tmp_path, skip_run=True, skip_docker=True, intake=intake)
 
     assert result.restricted.is_restricted
-    assert result.working_copy == tmp_path
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
+
+
+# ---------------------------------------------------------------------------
+# #27 — restricted runs still produce a working copy and a local-only
+# data-structure profile; LLM-FIX stays off, so a fixable-by-LLM native
+# failure stays failed instead of being auto-fixed.
+# ---------------------------------------------------------------------------
+
+
+def test_restricted_pipeline_continues_and_profiles_data(tmp_path: Path) -> None:
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "census_extract.csv").write_text("a,b\n1,2\n3,4\n")
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "run.R").write_text('read.csv("data/census_extract.csv")\n')
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+
+    result = run_pipeline(tmp_path, skip_run=True, skip_docker=True)
+
+    assert result.restricted.is_restricted
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
+    summary = result.working_copy / "DATA-STRUCTURE-SUMMARY.md"
+    assert summary.exists()
+    assert result.data_profile is not None
+    assert any(p.row_count == 2 for p in result.data_profile.profiles)
+
+
+@pytest.mark.local
+def test_restricted_native_failure_is_not_auto_fixed(tmp_path: Path) -> None:
+    """A native run failure that LLM-FIX could plausibly patch (a wrong
+    hardcoded path) must stay failed for a restricted run — the dispatcher
+    is unconditionally refusing, not just skipped because no key is set."""
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "run.py").write_text(
+        "open('/no/such/path/this_does_not_exist.csv').read()\n"
+    )
+    (tmp_path / "census_extract.csv").write_bytes(b"")  # filename trigger
+
+    result = run_pipeline(
+        tmp_path, master_script="code/run.py", skip_docker=True,
+    )
+
+    assert result.restricted.is_restricted
+    assert result.error is not None
+    assert "Native run failed" in result.error
+    assert result.llm_fix_loop is not None
+    assert result.llm_fix_loop.fixes_applied == []
+    assert result.llm_fix_loop.converged is True  # dispatcher refused -> None -> "converged"
 
 
 # ---------------------------------------------------------------------------

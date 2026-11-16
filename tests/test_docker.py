@@ -469,6 +469,34 @@ def test_run_docker_fix_loop_build_fail_no_fix(tmp_path, monkeypatch):
     assert "no auto-fix" in result.error
 
 
+def test_run_docker_fix_loop_restricted_never_calls_live_client(tmp_path, monkeypatch):
+    """#27 — a restricted run going through the Docker LLM-fix path must
+    never reach a live Anthropic client, even when outputs come up missing."""
+    from deadreckoning.models import DependencyGraph
+
+    def _raise(*a, **kw):
+        raise AssertionError("must never construct a live client")
+
+    monkeypatch.setattr("deadreckoning.llm_dispatcher.LLMDispatcher._get_client", _raise)
+    monkeypatch.setattr(
+        "deadreckoning.docker.build_image",
+        lambda *a, **kw: _make_build_result(True),
+    )
+    monkeypatch.setattr(
+        "deadreckoning.docker.run_in_container",
+        lambda *a, **kw: _make_run_result(False),
+    )
+    monkeypatch.setattr("deadreckoning.docker.write_dockerignore", lambda *a, **kw: None)
+
+    graph = DependencyGraph(project_root=tmp_path)
+    spec = _python_spec(packages=["pandas"])
+    result = run_docker_fix_loop(tmp_path, graph, spec, image_tag="dr:test", restricted=True)
+
+    assert not result.converged
+    assert result.error is not None
+    assert "Outputs missing" in result.error
+
+
 # ---------------------------------------------------------------------------
 # warn_before_push
 # ---------------------------------------------------------------------------

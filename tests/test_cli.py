@@ -53,8 +53,13 @@ def test_collect_intake_answers_file(tmp_path: Path) -> None:
 def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, capsys) -> None:
     """
     Project has no restricted-sounding filenames — only the intake answer
-    should trigger the abort. Confirms the real CLI path (not just
+    should mark the run restricted. Confirms the real CLI path (not just
     orchestrator.run_pipeline called directly) honors it.
+
+    Restricted no longer aborts the pipeline (#27) — it only disables
+    LLM-FIX/ASK hints for the rest of the run, so a working copy is made
+    just like any other run. `--stop-after detect` keeps this test from
+    needing a real interpreter to execute the (nonexistent) master script.
     """
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "wages.csv").write_bytes(b"")
@@ -63,16 +68,19 @@ def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, ca
     answers_path = tmp_path / "answers.json"
     answers_path.write_text(json.dumps({"restricted_data": "yes"}))
 
-    args = _make_args(project=str(tmp_path), skip_intake=False, answers_file=str(answers_path))
+    args = _make_args(
+        project=str(tmp_path), skip_intake=False, answers_file=str(answers_path),
+        stop_after="detect",
+    )
     rc = _cmd_run(args)
 
     out = capsys.readouterr().out
     payload = json.loads(out)
 
     assert payload["restricted"]["is_restricted"] is True
-    assert "restricted" in payload["error"].lower()
-    assert payload["working_copy"] == str(tmp_path)  # sentinel — no copy made
-    assert rc == 1
+    assert payload["error"] is None
+    assert payload["working_copy"] != str(tmp_path)  # a real copy was made, not the sentinel
+    assert rc == 0
 
 
 # ---------------------------------------------------------------------------

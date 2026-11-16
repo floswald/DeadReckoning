@@ -133,9 +133,12 @@ class GapHintDispatcher:
       to break ASK, which has to keep working with zero network dependency.
     """
 
-    def __init__(self, client: Any = None, model: str = "claude-sonnet-4-6") -> None:
+    def __init__(self, client: Any = None, model: str = "claude-sonnet-4-6", restricted: bool = False) -> None:
         self._client = client
         self.model = model
+        # Confidential/restricted data was detected for this project — never
+        # call the API, never build a prompt. See issue #27.
+        self.restricted = restricted
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -148,6 +151,9 @@ class GapHintDispatcher:
         return self._client
 
     def propose_hint(self, gap: Gap, graph: DependencyGraph, project_root: Path) -> Optional[str]:
+        if self.restricted:
+            return None
+
         if gap.kind not in (
             GapKind.exhibit_no_source_script,
             GapKind.exhibit_copied_but_no_source_script,
