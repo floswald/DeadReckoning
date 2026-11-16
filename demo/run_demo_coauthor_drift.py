@@ -81,7 +81,12 @@ def banner(title: str) -> None:
     print("=" * 72)
 
 
+_PAUSE = False  # set from --pause in main(); step() waits for Enter when True
+
+
 def step(name: str, explanation: str) -> None:
+    if _PAUSE:
+        input("\n[press Enter for the next step] ")
     print(f"\n--- {name} " + "-" * max(0, 68 - len(name)))
     print(f"    {explanation}")
 
@@ -296,5 +301,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the coauthor-drift demo.")
     parser.add_argument("--terse", action="store_true",
                          help="One-line-per-step output instead of full step-by-step narration")
+    parser.add_argument("--pause", action="store_true",
+                         help="Wait for Enter before each pipeline step — for presenting live")
     args = parser.parse_args()
+    _PAUSE = args.pause
     main(terse=args.terse)

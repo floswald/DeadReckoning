@@ -8,6 +8,13 @@ numbers are just silently wrong; the sixth is three independent static
 leads surfaced before anything runs, in a package mixing three
 languages.
 
+Every script below also takes `--pause`, in addition to `--terse`:
+waits for Enter before each narrated step instead of printing the whole
+run straight through — the flag to use when actually presenting one of
+these live, so the audience isn't reading a wall of scrolled-past text.
+(`--terse` and `--pause` compose but are redundant together — terse mode
+skips most of the `step()` narration `--pause` would otherwise wait on.)
+
 ## 1. Toy package — `run_demo.py`
 
 Fake paper (`toy_paper/`) with three rigged problems: the author claims
