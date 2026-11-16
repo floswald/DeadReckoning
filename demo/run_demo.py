@@ -7,6 +7,7 @@ Usage:
     python3 demo/run_demo.py --stata-image dataeditors/stata18_5-mp:2025-02-26 --stata-license /path/to/stata.lic
     python3 demo/run_demo.py --skip-docker   # acts 1-3 only, no Docker required
     python3 demo/run_demo.py --terse         # one-line-per-step output instead of full narration
+    python3 demo/run_demo.py --pause         # wait for Enter before each step — for presenting live
 
 Three acts:
   1. The author lies to the intake questionnaire (claims R-only, README backs it up).
@@ -31,6 +32,9 @@ PROJECT = REPO_ROOT / "demo" / "toy_paper"
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 
+_PAUSE = False  # set from --pause in main(); step() waits for Enter when True
+
+
 def banner(title: str) -> None:
     print()
     print("=" * 72)
@@ -39,6 +43,8 @@ def banner(title: str) -> None:
 
 
 def step(name: str, explanation: str) -> None:
+    if _PAUSE:
+        input("\n[press Enter for the next step] ")
     print(f"\n--- {name} " + "-" * max(0, 68 - len(name)))
     print(f"    {explanation}")
 
@@ -321,7 +327,13 @@ def main() -> None:
                          help="Don't pause between acts (for a scripted/recorded run)")
     parser.add_argument("--terse", action="store_true",
                          help="One-line-per-step output instead of full step-by-step narration")
+    parser.add_argument("--pause", action="store_true",
+                         help="Wait for Enter before each pipeline step (in addition to the "
+                              "existing between-act pauses) — for presenting live")
     args = parser.parse_args()
+
+    global _PAUSE
+    _PAUSE = args.pause
 
     if not args.skip_docker and not args.stata_license:
         print("No Stata license path given (set --stata-license or $STATA_LICENSE_PATH).")

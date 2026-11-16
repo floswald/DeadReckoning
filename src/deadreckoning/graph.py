@@ -12,6 +12,7 @@ from .models import (
     Gap,
     GapKind,
     OrphanFile,
+    ScriptCopiesFile,
     ScriptWritesExhibit,
 )
 
@@ -591,7 +592,19 @@ def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
 
     results: list[ScriptWritesExhibit] = []
     for lineno, line in enumerate(lines, start=1):
+        # A `pf_base_agg("old.pdf") => joinpath(dbplots(),"new.pdf")`-style
+        # registration-table line is a copy/rename edge (handled by
+        # _extract_copy_calls), not a write — but the generic write
+        # fallback below would otherwise also match it: `pf_base_agg(` looks
+        # exactly like a custom write-wrapper call containing a quoted
+        # exhibit-extension literal. Without this guard, the SAME line gets
+        # read as both "this wrote old.pdf" and "this copies old.pdf to
+        # new.pdf", which then lets the copy-chain resolver "find" a write
+        # that is really just the rename line referring to itself.
+        is_copy_pair = _is_copy_pair_line(line)
         for pat in patterns:
+            if is_copy_pair and pat is _GENERIC_EXHIBIT_WRITE_RE:
+                continue
             m = pat.search(line)
             if m:
                 written = m.group(1).strip()
@@ -603,6 +616,108 @@ def _extract_write_calls(script: Path) -> list[ScriptWritesExhibit]:
                         written_path=Path(written),
                     )
                 )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Copy/rename edges — a second kind of provenance, distinct from write calls.
+#
+# Real packages frequently produce an exhibit in two steps: a plotting/table
+# function writes under a working name, then a separate step copies or
+# renames it to the name the paper actually references. A single write-call
+# scan never connects the two. Two shapes cover this, both language-agnostic:
+#
+#   1. A two-argument copy/rename call: cp(src, dst), file.rename(src, dst),
+#      shutil.copy(src, dst), copyfile(src, dst), Stata `copy src dst`, ...
+#   2. A "registration table" pair, with no call at all at the point the
+#      literal filenames appear: `prefix("old.pdf") => joinpath(dir, "new.pdf")`
+#      — common when a package maintains one central list mapping internal
+#      working names to every paper exhibit name, then loops over it
+#      elsewhere (that loop uses variables, not literals, so it's invisible
+#      to a literal scan — but the table itself isn't).
+#
+# Both shapes are handled the same way: find every quoted literal ending in
+# a recognized exhibit extension on a line, regardless of how deeply it's
+# nested inside wrapper calls (joinpath(), pf_base(), file.path(), ...) —
+# the same "don't require immediate adjacency" idea as the generic write
+# fallback above. If a line has exactly two such literals AND looks like a
+# copy/rename/registration line (gated by a known function name or a `=>`
+# arrow, to avoid pairing up two unrelated filenames that happen to share a
+# line), the first is the source, the second the destination — true for
+# every copy/rename function's argument order, and for `src => dst` pairs.
+# ---------------------------------------------------------------------------
+
+_COPY_CALL_NAME_RE = re.compile(
+    r'\b(?:cp|mv|file\.rename|file\.copy|fs::file_move|fs::file_copy|'
+    r'Base\.cp|Base\.mv|shutil\.copy2?|shutil\.copyfile|shutil\.move|'
+    r'os\.rename|os\.replace|copyfile|movefile)\s*\(',
+    re.IGNORECASE,
+)
+_LITERAL_WITH_EXT_RE = re.compile(
+    r'["\']([^"\']+\.(?:' + _EXHIBIT_EXTENSIONS + r'))["\']',
+    re.IGNORECASE,
+)
+# Stata's `copy` is a command, not a function call — space-separated args,
+# each optionally quoted, no parens at all.
+_STATA_COPY_RE = re.compile(
+    r'^\s*copy\s+["\']?([^\s"\']+\.\w+)["\']?\s+["\']?([^\s"\']+\.\w+)["\']?',
+    re.IGNORECASE,
+)
+
+
+def _is_copy_pair_line(line: str) -> bool:
+    """True if `line` looks like a non-Stata copy/rename/registration-table
+    line: a recognized copy-function call or a `=>` pair, with exactly two
+    exhibit-extension literals on it. Shared by _extract_copy_calls (to
+    build the edge) and _extract_write_calls (to avoid misreading the same
+    line as a write — see the guard in that function)."""
+    if _COPY_CALL_NAME_RE.search(line) is None and "=>" not in line:
+        return False
+    return len(_LITERAL_WITH_EXT_RE.findall(line)) == 2
+
+
+def _extract_copy_calls(script: Path) -> list[ScriptCopiesFile]:
+    """Return all copy/rename edges found in a script (see module notes above)."""
+    try:
+        raw = script.read_text(errors="replace")
+        processed = _resolve_path_calls(raw)
+        lines = processed.splitlines()
+    except OSError:
+        return []
+
+    results: list[ScriptCopiesFile] = []
+    is_stata = script.suffix.lower() == ".do"
+
+    for lineno, line in enumerate(lines, start=1):
+        if is_stata:
+            m = _STATA_COPY_RE.match(line)
+            if m:
+                results.append(
+                    ScriptCopiesFile(
+                        script=script,
+                        copy_call="copy",
+                        line=lineno,
+                        src_path=Path(m.group(1)),
+                        dst_path=Path(m.group(2)),
+                    )
+                )
+            continue
+
+        if not _is_copy_pair_line(line):
+            continue
+
+        literals = _LITERAL_WITH_EXT_RE.findall(line)
+        call_match = _COPY_CALL_NAME_RE.search(line)
+        call_name = call_match.group(0)[:-1].strip() if call_match else "=>"
+        results.append(
+            ScriptCopiesFile(
+                script=script,
+                copy_call=call_name,
+                line=lineno,
+                src_path=Path(literals[0]),
+                dst_path=Path(literals[1]),
+            )
+        )
     return results
 
 
@@ -686,6 +801,109 @@ def _extract_data_refs(script: Path, project_root: Path) -> list[DataFile]:
 
 _SCRIPT_EXTENSIONS = {".R", ".r", ".do", ".py", ".jl", ".m"}
 
+# An unresolved Stata macro inside a captured path: a global (${name} or
+# $name) or local (`name') macro. A path still containing one of these isn't
+# missing — it's unresolved — see the 7d. comment in build_graph.
+_RUNTIME_MACRO_RE = re.compile(r'\$\{|\$[A-Za-z_]|`')
+
+
+def _candidate_abs_paths(base_script: Path, project_root: Path, rel: Path) -> tuple[Path, Path]:
+    """A relative path written in a script is ambiguous: authors mean it
+    relative to the script's own directory about as often as relative to the
+    project root. Try both, same convention used for write-call matching."""
+    return (base_script.parent / rel).resolve(), (project_root / rel).resolve()
+
+
+def _find_copy_edge_to(
+    target_abs: Path, all_copies: list[ScriptCopiesFile], project_root: Path
+) -> ScriptCopiesFile | None:
+    for c in all_copies:
+        if target_abs in _candidate_abs_paths(c.script, project_root, c.dst_path):
+            return c
+    for c in all_copies:  # fallback: same basename, different directory
+        if c.dst_path.name == target_abs.name:
+            return c
+    return None
+
+
+def _find_write_to(
+    target_abs: Path,
+    all_writes: list[ScriptWritesExhibit],
+    project_root: Path,
+    exclude: tuple[Path, int] | None = None,
+) -> ScriptWritesExhibit | None:
+    """exclude: (script, line) to skip — defends against a copy/rename edge's
+    own line being misread as the write that produced its source file (the
+    line names the source file as an argument, which isn't the same as
+    writing it); see the guard in _extract_write_calls for the root fix."""
+    def _ok(w: ScriptWritesExhibit) -> bool:
+        return exclude is None or (w.script, w.line) != exclude
+
+    for w in all_writes:
+        if not _ok(w):
+            continue
+        if target_abs in _candidate_abs_paths(w.script, project_root, w.written_path):
+            return w
+    for w in all_writes:  # fallback: same basename, different directory
+        if _ok(w) and w.written_path.name == target_abs.name:
+            return w
+    return None
+
+
+def _resolve_via_copy_chain(
+    abs_tex: Path,
+    all_writes: list[ScriptWritesExhibit],
+    all_copies: list[ScriptCopiesFile],
+    project_root: Path,
+    max_hops: int = 4,
+) -> tuple[ScriptWritesExhibit | None, ScriptCopiesFile | None]:
+    """
+    If abs_tex is the destination of a copy/rename edge, follow it upstream
+    (through further copy edges, if the rename happens in more than one
+    step) looking for the write call that originally produced the file.
+
+    Returns (source, copied_via):
+      - copied_via: the edge whose destination is abs_tex itself (the last
+        hop), or None if no copy edge reaches abs_tex at all.
+      - source: the write call found upstream, or None if the chain
+        dead-ends before reaching one (still useful — see
+        GapKind.exhibit_copied_but_no_source_script).
+    """
+    last_hop = _find_copy_edge_to(abs_tex, all_copies, project_root)
+    if last_hop is None:
+        return None, None
+
+    current_target = last_hop.src_path
+    current_script = last_hop.script
+    current_hop = last_hop
+    visited: set[Path] = set()
+
+    for _ in range(max_hops):
+        candidates = _candidate_abs_paths(current_script, project_root, current_target)
+        exclude = (current_hop.script, current_hop.line)
+
+        write = _find_write_to(
+            candidates[0], all_writes, project_root, exclude
+        ) or _find_write_to(candidates[1], all_writes, project_root, exclude)
+        if write is not None:
+            return write, last_hop
+
+        next_hop = None
+        for cand in candidates:
+            if cand in visited:
+                continue
+            visited.add(cand)
+            next_hop = _find_copy_edge_to(cand, all_copies, project_root)
+            if next_hop is not None:
+                break
+        if next_hop is None:
+            break  # chain dead-ends — no write, no further copy edge upstream
+        current_target = next_hop.src_path
+        current_script = next_hop.script
+        current_hop = next_hop
+
+    return None, last_hop
+
 
 def build_graph(project_root: Path) -> DependencyGraph:
     """
@@ -708,10 +926,12 @@ def build_graph(project_root: Path) -> DependencyGraph:
         scripts.extend(p for p in project_root.rglob(f"*{ext}") if p.is_file())
     scripts = sorted(set(scripts))
 
-    # 4. Extract all write calls from scripts
+    # 4. Extract all write calls and copy/rename edges from scripts
     all_writes: list[ScriptWritesExhibit] = []
+    all_copies: list[ScriptCopiesFile] = []
     for script in scripts:
         all_writes.extend(_extract_write_calls(script))
+        all_copies.extend(_extract_copy_calls(script))
 
     # 5. Extract exhibits from .tex files (returns resolved absolute paths)
     raw_exhibit_paths: list[Path] = []
@@ -776,6 +996,16 @@ def build_graph(project_root: Path) -> DependencyGraph:
                     path_mismatch = True
                     break
 
+        # Still nothing? This exhibit may have been produced in two steps:
+        # written under a working name, then copied/renamed to this one —
+        # a `cp`/`file.rename`/registration-table edge rather than a direct
+        # write. Walk it: copied_via is the edge landing on this exhibit;
+        # source (if found) is the write call that produced copied_via's
+        # original file, possibly through further copy hops upstream.
+        copied_via: ScriptCopiesFile | None = None
+        if source is None:
+            source, copied_via = _resolve_via_copy_chain(abs_tex, all_writes, all_copies, project_root)
+
         # Store exhibit path relative to project root for readability
         try:
             display_path = abs_tex.relative_to(project_root)
@@ -788,6 +1018,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
                 exists_on_disk=exists,
                 source=source,
                 path_mismatch=path_mismatch,
+                copied_via=copied_via,
             )
         )
 
@@ -797,10 +1028,18 @@ def build_graph(project_root: Path) -> DependencyGraph:
                     kind=(
                         GapKind.exhibit_missing_from_disk
                         if not exists
+                        else GapKind.exhibit_copied_but_no_source_script
+                        if copied_via is not None
                         else GapKind.exhibit_no_source_script
                     ),
                     exhibit=display_path,
                     candidate_scripts=_candidate_scripts(abs_tex, scripts),
+                    note=(
+                        f"{copied_via.script.name}:{copied_via.line} copies "
+                        f"{copied_via.src_path} to this exhibit, but no script "
+                        f"writes {copied_via.src_path}"
+                        if copied_via is not None else None
+                    ),
                 )
             )
         elif path_mismatch:
@@ -871,6 +1110,29 @@ def build_graph(project_root: Path) -> DependencyGraph:
     # full topological sort.
     script_order = _topological_script_order(scripts, data_files)
 
+    # 7d. Missing inputs: an in-package (non-external) data read that is not
+    # on disk and that no script's write call produces either. Checked
+    # before any run is attempted — see A14 in compare.md. Excludes paths
+    # still carrying an unresolved macro/variable (Stata `${name}`/`` `name' ``,
+    # a literal leading "$"): those are the A18 runtime-assembled-path case,
+    # not a missing file — the path is unresolved, not absent.
+    for df in data_files:
+        if df.is_external or df.exists_on_disk or df.produced_by is not None:
+            continue
+        if _RUNTIME_MACRO_RE.search(str(df.path)):
+            continue
+        readers = ", ".join(str(s) for s in df.referenced_by)
+        gaps.append(
+            Gap(
+                kind=GapKind.input_missing_from_disk,
+                exhibit=df.path,
+                note=(
+                    f"Read by {readers} but not present on disk and no script "
+                    "writes it either."
+                ),
+            )
+        )
+
     # 7. Orphan files: scripts that produce nothing in the exhibit list
     needed_scripts = {e.source.script for e in exhibits if e.source}
     for script in scripts:
@@ -897,6 +1159,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
         orphan_files=[],
         script_order=script_order,
         script_writes=all_writes,
+        script_copies=all_copies,
     )
 
 

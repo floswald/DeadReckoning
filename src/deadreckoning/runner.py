@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import DataFile, DependencyGraph
+from .nondeterminism import find_nondeterministic_calls
 
 
 @dataclass
@@ -32,7 +33,14 @@ class ValidationResult:
         return len(self.missing) == 0
 
 
-def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunResult:
+_COMPILED_EXTS = (".f90", ".f95", ".f", ".for", ".c", ".cpp", ".cc", ".cxx")
+
+
+def run_natively(
+    project_root: Path,
+    master_script: str = "code/run.R",
+    compile_command: str | None = None,
+) -> RunResult:
     """
     Dispatch to the right runner based on script extension.
 
@@ -40,6 +48,11 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
     .do      → Stata (via stata.run_stata, wrapped into RunResult)
     .jl      → julia
     .py      → python
+    .sh      → bash (a multi-language orchestrator — see _run_shell)
+    .f90/.f95/.f/.for, .c, .cpp/.cc/.cxx → compile_command (see _run_compiled;
+        a Fortran/C/C++ source file isn't directly executable the way the
+        above are — ASK's compiled_language_no_build_script question is
+        what supplies compile_command when no build script was found)
     """
     ext = Path(master_script).suffix.lower()
     if ext in (".r",):
@@ -52,6 +65,10 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
         return _run_python(project_root, master_script)
     if ext == ".m":
         return _run_matlab(project_root, master_script)
+    if ext == ".sh":
+        return _run_shell(project_root, master_script)
+    if ext in _COMPILED_EXTS:
+        return _run_compiled(project_root, master_script, compile_command)
     return RunResult(
         returncode=1,
         stdout="",
@@ -59,9 +76,28 @@ def run_natively(project_root: Path, master_script: str = "code/run.R") -> RunRe
     )
 
 
-def _run_r(project_root: Path, master_script: str) -> RunResult:
+def _run_compiled(
+    project_root: Path, master_script: str, compile_command: str | None
+) -> RunResult:
+    """Fortran/C/C++ source can't be executed directly — `compile_command`
+    (the author's answer to ASK's compiled_language_no_build_script
+    question, or a discovered build script's invocation) is shelled out to
+    compile AND run it. No compile_command reaching here is a logic error
+    upstream: ASK should have blocked the pipeline first."""
+    if not compile_command:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=(
+                f"No build script found and no compile command supplied for "
+                f"compiled-language source {master_script!r}. This should "
+                "have been caught by ASK (compiled_language_no_build_script) "
+                "before reaching RUN."
+            ),
+        )
     result = subprocess.run(
-        ["Rscript", master_script],
+        compile_command,
+        shell=True,
         cwd=project_root,
         capture_output=True,
         text=True,
@@ -71,35 +107,61 @@ def _run_r(project_root: Path, master_script: str) -> RunResult:
         stdout=result.stdout,
         stderr=result.stderr,
     )
+
+
+def _run_subprocess(cmd: list[str], cwd: Path, interpreter_label: str) -> RunResult:
+    """subprocess.run wrapped into a RunResult, with the interpreter simply
+    not being installed turned into a normal (non-crashing) failure result
+    instead of an uncaught FileNotFoundError — the same "not found" posture
+    _run_matlab()/_run_stata() already get from detect_matlab()/
+    detect_stata() before they ever shell out."""
+    try:
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    except FileNotFoundError:
+        return RunResult(
+            returncode=1,
+            stdout="",
+            stderr=f"{interpreter_label!r} not found on PATH — is it installed?",
+        )
+    return RunResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+
+
+def _run_r(project_root: Path, master_script: str) -> RunResult:
+    return _run_subprocess(["Rscript", master_script], project_root, "Rscript")
 
 
 def _run_julia(project_root: Path, master_script: str) -> RunResult:
-    result = subprocess.run(
-        ["julia", master_script],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    return RunResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return _run_subprocess(["julia", master_script], project_root, "julia")
 
 
 def _run_python(project_root: Path, master_script: str) -> RunResult:
     import sys
-    result = subprocess.run(
-        [sys.executable, master_script],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    return RunResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return _run_subprocess([sys.executable, master_script], project_root, sys.executable)
+
+
+def _run_shell(project_root: Path, master_script: str) -> RunResult:
+    """
+    A shell-script master (the run_all.sh-style multi-language orchestrator
+    `_detect_master_script` prefers above any single-language script) is
+    conventionally run FROM ITS OWN DIRECTORY, not the project root —
+    every relative path inside it, including paths handed to whatever
+    Stata/R/Julia process it launches, is written assuming that. Using
+    project_root as cwd here breaks a correct package the moment the shell
+    script references anything by relative path.
+
+    Confirmed against a real published package: `code/run_all.sh` invokes
+    `stata-mp -b stata/replication_aggregate_main.do`, a path only valid
+    with cwd=code/ (= run_all.sh's own directory) — the README's own setup
+    instructions say exactly this ("navigate to code/, then ./run_all.sh").
+    With cwd=project_root instead, that first line fails immediately,
+    before Stata, R, or Julia ever run.
+    """
+    script_path = project_root / master_script
+    return _run_subprocess(["bash", str(script_path)], script_path.parent, "bash")
 
 
 def _run_matlab(project_root: Path, master_script: str) -> RunResult:
@@ -181,6 +243,10 @@ class FidelityResult:
     reference_hash: str | None = None
     regenerated_hash: str | None = None
     suspects: list[SuspectFile] = field(default_factory=list)
+    # Set on mismatch when the producing script writes the wall clock, a
+    # PID, or a tempdir path — a byte mismatch here may be expected, not
+    # drift. See nondeterminism.py / Action Point 3 in compare.md.
+    nondeterminism_note: str | None = None
 
 
 def _sha256(data: bytes) -> str:
@@ -230,6 +296,24 @@ def check_exhibit_fidelity(
         reference_hash=reference_hash,
         regenerated_hash=regenerated_hash,
         suspects=_localize_divergence(project_root, graph, exhibit_tex_path),
+        nondeterminism_note=_nondeterminism_note(graph, exhibit_tex_path),
+    )
+
+
+def _nondeterminism_note(graph: DependencyGraph, exhibit_tex_path: Path) -> str | None:
+    """None unless the script producing this exhibit writes the wall clock,
+    a PID, or a tempdir path — in which case name the call(s) found."""
+    exhibit = next((e for e in graph.exhibits if e.tex_path == exhibit_tex_path), None)
+    if exhibit is None or exhibit.source is None:
+        return None
+    calls = find_nondeterministic_calls(exhibit.source.script)
+    if not calls:
+        return None
+    joined = ", ".join(calls)
+    return (
+        f"{exhibit.source.script.name} calls {joined} — this exhibit may "
+        "legitimately differ byte-for-byte on every run (a timestamp/PID/"
+        "tempdir path), independent of whether the underlying numbers match."
     )
 
 
@@ -325,3 +409,27 @@ def _localize_divergence(
             )
 
     return suspects
+
+
+def group_fidelity_mismatches(results: list[FidelityResult]) -> dict[Path, list[Path]]:
+    """
+    Group a batch of check_exhibit_fidelity() results by suspect: map each
+    upstream file implicated in at least one mismatch to the exhibit(s) it's
+    implicated in.
+
+    Presentation-layer aggregation only — check_exhibit_fidelity() itself
+    stays one-exhibit-in, one-result-out. Lets a driver running the check
+    across several exhibits show "these N exhibits all point at the same
+    upstream file" instead of reimplementing the grouping itself.
+
+    Matching exhibits and exhibits whose suspect list is empty (mismatched,
+    but the dependency chain dead-ends before naming anything) contribute
+    nothing.
+    """
+    grouped: dict[Path, list[Path]] = {}
+    for result in results:
+        if result.matches_reference:
+            continue
+        for suspect in result.suspects:
+            grouped.setdefault(suspect.path, []).append(result.exhibit)
+    return grouped

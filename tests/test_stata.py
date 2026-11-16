@@ -67,6 +67,7 @@ def test_advice_not_on_path_macos():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_detect_stata_finds_binary():
     install = detect_stata()
     assert install.found, f"Stata not found. Advice:\n{install.advice}"
@@ -74,6 +75,7 @@ def test_detect_stata_finds_binary():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_detect_stata_has_version():
     install = detect_stata()
     if install.found:
@@ -160,6 +162,7 @@ def test_graph_stata_fig1_sourced():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_stata_run_in_working_copy(tmp_path):
     working = tmp_path / "project"
     shutil.copytree(FIXTURE, working)
@@ -176,6 +179,7 @@ def test_stata_run_in_working_copy(tmp_path):
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_stata_run_does_not_touch_original():
     orig = FIXTURE / "figures" / "fig1.pdf"
     if not orig.exists():
@@ -192,6 +196,7 @@ def test_stata_run_does_not_touch_original():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_stata_log_error_detection(tmp_path):
     """A .do file with an error must produce success=False even though exit code is 0."""
     (tmp_path / "bad.do").write_text("sysuse auto, clear\nthis_command_does_not_exist\n")
@@ -205,6 +210,7 @@ def test_stata_log_error_detection(tmp_path):
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_stata_pipeline_native_succeeds():
     result = run_pipeline(FIXTURE, skip_docker=True)
     assert result.error is None, f"Pipeline error: {result.error}"
@@ -216,6 +222,7 @@ def test_stata_pipeline_native_succeeds():
 
 
 @pytest.mark.local
+@pytest.mark.stata
 def test_stata_pipeline_auto_detects_master():
     """Pipeline with master_script=None must auto-detect code/master.do."""
     result = run_pipeline(FIXTURE, master_script=None, skip_docker=True)

@@ -237,6 +237,7 @@ def test_runner_m_appends_error_snippet(tmp_path):
 
 
 @pytest.mark.local
+@pytest.mark.matlab
 @pytest.mark.skipif(not shutil.which("matlab"), reason="matlab not on PATH")
 def test_matlab_detect_finds_binary():
     result = detect_matlab()
@@ -245,6 +246,7 @@ def test_matlab_detect_finds_binary():
 
 
 @pytest.mark.local
+@pytest.mark.matlab
 @pytest.mark.skipif(not shutil.which("matlab"), reason="matlab not on PATH")
 def test_matlab_detect_release_set():
     result = detect_matlab()
@@ -254,6 +256,7 @@ def test_matlab_detect_release_set():
 
 
 @pytest.mark.local
+@pytest.mark.matlab
 @pytest.mark.skipif(not shutil.which("matlab"), reason="matlab not on PATH")
 def test_matlab_native_run_succeeds(tmp_path):
     # Use 'master.m' to avoid shadowing MATLAB's built-in run() function.
@@ -274,6 +277,7 @@ def test_matlab_native_run_succeeds(tmp_path):
 
 
 @pytest.mark.local
+@pytest.mark.matlab
 @pytest.mark.skipif(not shutil.which("matlab"), reason="matlab not on PATH")
 def test_matlab_broken_script_returns_nonzero(tmp_path):
     (tmp_path / "code").mkdir()

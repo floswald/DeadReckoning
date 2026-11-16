@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from .fidelity_check import FidelityCheckResult
 from .models import (
     AuthorQA,
     CleanResult,
@@ -328,6 +329,7 @@ def generate_delivery_report(
     clean: Optional[CleanResult] = None,
     native_ok: bool = False,
     container_ok: bool = False,
+    fidelity_check: Optional[FidelityCheckResult] = None,
 ) -> str:
     today = date.today().isoformat()
     lines = [f"# DeadReckoning — Delivery Report\n\nGenerated: {today}\n\n"]
@@ -371,6 +373,24 @@ def generate_delivery_report(
         else:
             status = f"{n_orphans} orphan(s) found" if n_orphans else "✓ no orphans"
             lines.append(row("Clean", status))
+
+    if fidelity_check is None or not fidelity_check.attempted:
+        lines.append(row(
+            "Fidelity",
+            "not run — no reference exhibit directories were supplied at intake",
+        ))
+    elif fidelity_check.mismatches:
+        lines.append(row(
+            "Fidelity",
+            f"⚠ {len(fidelity_check.mismatches)}/{fidelity_check.exhibits_checked} "
+            "mismatch(es) — see FIDELITY-REPORT.md",
+        ))
+    else:
+        lines.append(row(
+            "Fidelity",
+            f"✓ {fidelity_check.exhibits_checked}/{fidelity_check.exhibits_checked} "
+            "matched reference — see FIDELITY-REPORT.md",
+        ))
 
     lines.append("\n")
 
@@ -474,6 +494,7 @@ def run_deliver_step(
     native_ok: bool = False,
     container_ok: bool = False,
     assemble_zip: bool = False,
+    fidelity_check: Optional[FidelityCheckResult] = None,
 ) -> DeliverResult:
     """
     Full DELIVER step.
@@ -491,6 +512,7 @@ def run_deliver_step(
         clean=clean,
         native_ok=native_ok,
         container_ok=container_ok,
+        fidelity_check=fidelity_check,
     )
 
     if assemble_zip:

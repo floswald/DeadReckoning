@@ -24,20 +24,26 @@ Two coauthors, no git discipline for author 2:
     average regional revenue)
 
 Author 2's do-file originally used `outsheet`, which (with no display
-format ever set) truncates exported numbers to 2 decimals. Months after
-the paper is accepted, author 2 upgrades Stata and modernizes the script
-to `export delimited` (the recommended replacement since Stata 13) —
-still with no display format set, so the full double-precision weight
-now leaks into the csv. Same underlying data, same code logic, just a
-different export command with a different default. Confirmed via
-Statalist:
+format ever set) truncates exported numbers to 2 decimals. At some point
+before the paper is accepted, author 2 upgrades their Stata version and
+modernizes the script to `export delimited` (the recommended replacement
+since Stata 13) — still with no display format set, so the full
+double-precision weight now leaks into the csv. Same underlying data,
+same code logic, just a different export command with a different
+default. Confirmed via Statalist:
   https://www.stata.com/statalist/archive/2011-01/msg00310.html
   https://www.stata.com/statalist/archive/2010-12/msg00903.html
   https://www.statalist.org/forums/forum/general-stata-discussion/general/1577196-export-excel-and-decimal-places
 
-Author 2 drops the re-exported csv into the shared Dropbox folder "to
-tidy up." Nobody reruns the paper. Later, author 1 reruns everything —
-native execution succeeds, VALIDATE passes, and Table 3 is wrong anyway.
+Author 2 runs the script and regenerates `input_data_from_2.csv`, then
+drops it into the shared Dropbox folder "to tidy up." But the downstream
+consumer of that file, `combine.jl`, is never rerun — so what actually
+goes into the accepted paper is `combine.jl`'s old output, generated
+before the re-export, now silently out of sync with the csv already
+sitting on disk. Later, when author 1 reruns the whole pipeline to
+check reproducibility — native execution succeeds, VALIDATE passes —
+`combine.jl` picks up the already-updated csv and produces a different
+number than the one in the PDF.
 check_exhibit_fidelity() is the new check that catches this: it compares
 the regenerated exhibit against the published reference, and on mismatch
 walks the dependency chain to name the upstream file(s) most likely
@@ -63,8 +69,9 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 # Timeline stamped explicitly via os.utime() below — mtimes do not survive
 # a fresh git clone/CI checkout, so this demo can't rely on whatever mtimes
 # happen to ship in the repo.
-T_DELIVERED = datetime.datetime(2024, 1, 10).timestamp()   # author 2's original csv, panel.csv
-T_REEXPORT = datetime.datetime(2024, 9, 15).timestamp()    # author 2's silent re-export, months later
+T_DELIVERED = datetime.datetime(2024, 1, 10).timestamp()   # initial delivery: panel.csv + input_data_from_2.csv v1, combine.jl run once -> the Table 3 that ships in the accepted paper
+T_REEXPORT = datetime.datetime(2024, 3, 5).timestamp()     # author 2 upgrades Stata, reruns export.do -> csv overwritten with v2 — but combine.jl is never rerun
+T_ACCEPTED = datetime.datetime(2024, 6, 1).timestamp()     # paper accepted with the stale (pre-re-export) Table 3 still in the PDF, narrative only, no file tied to this
 
 
 def banner(title: str) -> None:
@@ -74,7 +81,12 @@ def banner(title: str) -> None:
     print("=" * 72)
 
 
+_PAUSE = False  # set from --pause in main(); step() waits for Enter when True
+
+
 def step(name: str, explanation: str) -> None:
+    if _PAUSE:
+        input("\n[press Enter for the next step] ")
     print(f"\n--- {name} " + "-" * max(0, 68 - len(name)))
     print(f"    {explanation}")
 
@@ -105,14 +117,19 @@ def main(terse: bool = False) -> None:
     print("  own machine, never shared, never git-tracked. See")
     print(f"  {PRIVATE.relative_to(REPO_ROOT)}/ for what it actually contains.")
     print()
-    print("  Months after the paper is accepted, author 2 upgrades Stata and")
-    print("  modernizes the script (outsheet -> export delimited, the Stata 13+")
-    print("  recommended replacement) without ever setting a display format.")
-    print("  Same data, same logic — outsheet truncated to 2 decimals under the")
-    print("  unset default; export delimited doesn't. The re-exported csv lands")
-    print("  in the shared folder 'to tidy up.' Nobody reruns the paper.")
+    print("  At some point before the paper is accepted, author 2 upgrades their")
+    print("  Stata version and modernizes the script (outsheet -> export delimited,")
+    print("  the Stata 13+ recommended replacement) without ever setting a display")
+    print("  format. Same data, same logic — outsheet truncated to 2 decimals under")
+    print("  the unset default; export delimited doesn't. Author 2 reruns the script")
+    print("  and drops the re-exported csv in the shared folder 'to tidy up.'")
     print("  (github.com/statalist archives: msg00310.html, msg00903.html;")
     print("   statalist.org forum 1577196 — real mechanism, not invented.)")
+    print()
+    print("  But combine.jl, the downstream consumer of that csv, is never rerun.")
+    print("  What goes into the accepted paper is combine.jl's old output, generated")
+    print("  before the re-export — already out of sync with the csv on disk by the")
+    print("  time the paper is accepted. Nobody notices because nothing crashes.")
 
     banner("Full pipeline run, step by step")
 
@@ -188,17 +205,23 @@ def main(terse: bool = False) -> None:
         step("FIX (deterministic)", "no-LLM fixes only, e.g. a script writing to the wrong output path")
     print(f"  {fix_result.iterations} iteration(s), {len(fix_result.fixes_applied)} fix(es) applied")
 
-    banner("Time passes: paper accepted, then author 2's silent re-export")
+    banner("Time passes: author 2 re-exports, combine.jl doesn't rerun, paper gets accepted")
     print("  Stamping the timeline explicitly (mtimes don't survive git clone/CI,")
     print("  so this demo rigs them rather than relying on whatever ships):")
-    print(f"    panel.csv, original weights delivered:  {datetime.datetime.fromtimestamp(T_DELIVERED).date()}")
-    print(f"    author 2's silent re-export:             {datetime.datetime.fromtimestamp(T_REEXPORT).date()}")
+    print(f"    panel.csv + input_data_from_2.csv v1 delivered, combine.jl run once:")
+    print(f"      {datetime.datetime.fromtimestamp(T_DELIVERED).date()}  (-> the Table 3 that ends up in the PDF)")
+    print(f"    author 2 upgrades Stata, reruns export.do, csv overwritten with v2:")
+    print(f"      {datetime.datetime.fromtimestamp(T_REEXPORT).date()}  (combine.jl is NOT rerun)")
+    print(f"    paper accepted, still carrying the pre-re-export Table 3:")
+    print(f"      {datetime.datetime.fromtimestamp(T_ACCEPTED).date()}")
 
     os.utime(working_copy / "data" / "input_data_from_2.csv", (T_DELIVERED, T_DELIVERED))
     shutil.copy(PRIVATE / "input_data_from_2_v2.csv", working_copy / "data" / "input_data_from_2.csv")
     os.utime(working_copy / "data" / "input_data_from_2.csv", (T_REEXPORT, T_REEXPORT))
     print("\n  data/input_data_from_2.csv swapped for author 2's re-exported version")
     print("  (full double precision now, where it used to be rounded to 2 decimals)")
+    print("  — this already happened before acceptance; the accepted Table 3 simply")
+    print("  never reflected it, because combine.jl was never rerun to pick it up.")
 
     # RUN (native) — every script in dependency order, driven by the now-real
     # script_order (previously an aspirational field that build_graph never
@@ -267,11 +290,19 @@ def main(terse: bool = False) -> None:
     print("  author 2's machine has no git, so that's genuinely the best")
     print("  evidence available. On a git-tracked package, the same check")
     print("  would instead report an exact commit, date, and author.")
+    print()
+    print("  The 'correct' fix is putting the whole pipeline under git with CI")
+    print("  checking every exhibit on every push — but that's not a realistic")
+    print("  ask for most social scientists. This check exists for the world")
+    print("  as it actually is: no git, no CI, just a shared Dropbox folder.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the coauthor-drift demo.")
     parser.add_argument("--terse", action="store_true",
                          help="One-line-per-step output instead of full step-by-step narration")
+    parser.add_argument("--pause", action="store_true",
+                         help="Wait for Enter before each pipeline step — for presenting live")
     args = parser.parse_args()
+    _PAUSE = args.pause
     main(terse=args.terse)

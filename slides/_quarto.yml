@@ -1,0 +1,12 @@
+project:
+  type: website
+  render:
+    - dead-reckoning.qmd
+  resources:
+    - offline-assets/**
+    - img/**
+
+profile:
+  default: cast
+  group:
+    - [cast, live]

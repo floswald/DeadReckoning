@@ -26,7 +26,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "local: requires local R/Docker installation — not run in CI",
+    "local: requires a local real-execution dependency (R/Julia/Stata/MATLAB/Docker/compilers) — a superset of stata/matlab/docker below, kept for the 'run everything real' local-dev shorthand",
     "docker: requires Docker daemon — subset of local",
+    "stata: requires a licensed Stata installation — not available in CI",
+    "matlab: requires a licensed MATLAB installation — not available in CI",
     "llm: real Anthropic API calls — excluded from CI unless ANTHROPIC_API_KEY set",
 ]

@@ -123,6 +123,62 @@ def test_intake_restricted_no_proceeds_normally(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# §4.2 — a filename-heuristic hit is a lead, not proof: must be re-asked,
+# never trusted (or dismissed) on its own.
+# ---------------------------------------------------------------------------
+
+
+def test_filename_hit_without_override_still_aborts(tmp_path: Path) -> None:
+    """No re-ask has happened (intake=None) — fail-safe default is to abort,
+    unchanged from before this existed."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "census_extract.csv").write_bytes(b"")
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+
+    result = run_pipeline(tmp_path, skip_run=True, skip_docker=True)
+
+    assert result.restricted.is_restricted
+    assert result.working_copy == tmp_path
+
+
+def test_filename_hit_with_override_safe_proceeds(tmp_path: Path) -> None:
+    """A filename match alone (e.g. a public-use `psid`-named extract) is not
+    proof of restricted data. Once the author is re-asked and confirms this
+    specific hit is a false positive, the pipeline must proceed — not abort
+    just because the heuristic fired."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "psid_public_use_1997.csv").write_bytes(b"")
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+    (tmp_path / "run.R").write_text("# script\n")
+
+    intake = questionnaire(answers={"restricted_data": "no"})
+    intake.restricted_override_safe = True
+
+    result = run_pipeline(tmp_path, skip_run=True, skip_docker=True, intake=intake)
+
+    assert not result.restricted.is_restricted, (
+        "Confirmed false positive must clear DETECT, not just skip the abort"
+    )
+    assert result.working_copy != tmp_path
+    assert result.working_copy.exists()
+
+
+def test_filename_hit_override_unset_still_aborts(tmp_path: Path) -> None:
+    """restricted_override_safe defaults to None — a filename hit must still
+    abort unless the author was actually re-asked and said it's safe."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "census_extract.csv").write_bytes(b"")
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+
+    intake = questionnaire(answers={"restricted_data": "no"})  # no re-ask performed
+
+    result = run_pipeline(tmp_path, skip_run=True, skip_docker=True, intake=intake)
+
+    assert result.restricted.is_restricted
+    assert result.working_copy == tmp_path
+
+
+# ---------------------------------------------------------------------------
 # RESOLVE's here::here() adoption must feed back into env_spec.packages —
 # CAPTURE runs before RESOLVE, so it can't see a dependency RESOLVE itself
 # introduces by rewriting code.

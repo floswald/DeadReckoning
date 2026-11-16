@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from deadreckoning.graph import build_graph
-from deadreckoning.runner import check_exhibit_fidelity
+from deadreckoning.runner import FidelityResult, SuspectFile, check_exhibit_fidelity, group_fidelity_mismatches
 
 
 def _write_chain(root: Path) -> None:
@@ -125,6 +125,41 @@ def test_diverges_and_localizes_via_git_when_repo_present(chain_project):
     assert "Author One" in suspect.detail
 
 
+def test_nondeterminism_note_absent_for_clean_mismatch(chain_project):
+    """No wall-clock/PID/tempdir call in the producing script — note is None,
+    same as before this field existed."""
+    graph = build_graph(chain_project)
+    reference = (chain_project / "output" / "Table3.tex").read_bytes()
+    (chain_project / "output" / "Table3.tex").write_text("regenerated: 159.87")
+
+    result = check_exhibit_fidelity(chain_project, graph, Path("output/Table3.tex"), reference)
+
+    assert not result.matches_reference
+    assert result.nondeterminism_note is None
+
+
+def test_nondeterminism_note_set_when_producing_script_writes_wallclock(chain_project):
+    """combine.jl calls now() — a mismatch here may be expected, not drift."""
+    (chain_project / "code" / "combine.jl").write_text(
+        'using CSV, Dates\n'
+        'panel = CSV.read("panel.csv")\n'
+        'weights = CSV.read("input_data_from_2.csv")\n'
+        'open("output/Table3.tex", "w") do io\n'
+        '    write(io, string(now()))\n'
+        'end\n'
+    )
+    graph = build_graph(chain_project)
+    reference = (chain_project / "output" / "Table3.tex").read_bytes()
+    (chain_project / "output" / "Table3.tex").write_text("regenerated: 159.87")
+
+    result = check_exhibit_fidelity(chain_project, graph, Path("output/Table3.tex"), reference)
+
+    assert not result.matches_reference
+    assert result.nondeterminism_note is not None
+    assert "combine.jl" in result.nondeterminism_note
+    assert "now(" in result.nondeterminism_note
+
+
 def test_missing_exhibit_file_reports_mismatch(chain_project):
     graph = build_graph(chain_project)
     reference = b"published: 160.00"
@@ -134,3 +169,57 @@ def test_missing_exhibit_file_reports_mismatch(chain_project):
 
     assert not result.matches_reference
     assert result.regenerated_hash is None
+
+
+# ---------------------------------------------------------------------------
+# group_fidelity_mismatches — fan-out aggregation over several results
+# ---------------------------------------------------------------------------
+
+
+def _suspect(path: str, evidence: str = "git") -> SuspectFile:
+    return SuspectFile(path=Path(path), evidence=evidence, confidence="high", detail="d")
+
+
+def test_multiple_exhibits_sharing_one_suspect_group_together():
+    shared = Path("data/raw/FRA_base.dta")
+    results = [
+        FidelityResult(exhibit=Path("figure1.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+        FidelityResult(exhibit=Path("figureA2a.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+        FidelityResult(exhibit=Path("figureA2b.pdf"), matches_reference=False, suspects=[_suspect(str(shared))]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert set(grouped.keys()) == {shared}
+    assert set(grouped[shared]) == {Path("figure1.pdf"), Path("figureA2a.pdf"), Path("figureA2b.pdf")}
+
+
+def test_mismatched_exhibit_with_no_suspects_does_not_appear():
+    results = [
+        FidelityResult(exhibit=Path("orphan.pdf"), matches_reference=False, suspects=[]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {}
+
+
+def test_clean_matching_exhibit_contributes_nothing():
+    results = [
+        FidelityResult(exhibit=Path("figureA3.pdf"), matches_reference=True, suspects=[]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {}
+
+
+def test_different_suspects_kept_in_separate_groups():
+    results = [
+        FidelityResult(exhibit=Path("a.pdf"), matches_reference=False, suspects=[_suspect("input1.csv")]),
+        FidelityResult(exhibit=Path("b.pdf"), matches_reference=False, suspects=[_suspect("input2.csv")]),
+    ]
+
+    grouped = group_fidelity_mismatches(results)
+
+    assert grouped == {Path("input1.csv"): [Path("a.pdf")], Path("input2.csv"): [Path("b.pdf")]}

@@ -52,28 +52,187 @@ Useful flags:
 ### Pipeline steps
 
 ```
-DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native) → CLEAN → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
+DETECT → GRAPH → CAPTURE → SCAN → RESOLVE → ASK → FIX → LLM-FIX → RUN (native) → VALIDATE (native)
+  → CLEAN → RNG-CHECK → MIXED-LANGUAGE-CHECK → SORT-CHECK → FIDELITY → GENERATE → BUILD (docker) → VALIDATE (docker) → DELIVER
 ```
 
-| Step | What it does |
-|------|--------------|
-| **DETECT** | Confidentiality gate — restricted-data check, before any copy is made |
-| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps; writes `DATA-EXHIBIT-MAP.md` |
-| **CAPTURE** | Infer language / packages / pin-method from lockfiles or a static scan |
-| **SCAN** | Extract external paths, package references, and secrets from every script |
-| **RESOLVE** | Rewrite external/absolute paths to project-relative ones |
-| **ASK** | Surface gaps/contradictions that need the author; writes `QUESTIONS.md` (halts here only if a question is blocking) |
-| **FIX** | Deterministic fixes (no LLM) — e.g. a script writing to the wrong output path |
-| **LLM-FIX** | Only runs if the native run fails — Claude proposes a fix from the stderr |
-| **RUN (native)** | Actually execute the master script |
-| **VALIDATE (native)** | Check every exhibit the script claims to produce actually landed on disk |
-| **CLEAN** | Flag files unreachable from any exhibit; writes `CLEANUP.md` (non-blocking) |
-| **GENERATE** | Write the Dockerfile (skipped by default — pass `--no-skip-docker`) |
-| **BUILD (docker)** | Build the image |
-| **VALIDATE (docker)** | Re-run and validate inside the container |
-| **DELIVER** | Write the README template + `DELIVERY_REPORT.md` |
+| Step | What it does | Blocking? | Output file |
+|------|--------------|-----------|--------------|
+| **DETECT** | Filename-only restricted-data check, before any file is opened | Yes — can abort before the working copy is even made | — |
+| **GRAPH** | Parse `paper.tex` + scripts into exhibits / data files / gaps | Partially (some gap kinds feed a blocking ASK question) | — (feeds `DATA-EXHIBIT-MAP.md`, written separately) |
+| **CAPTURE** | Infer language / packages / confidence from lockfiles or a static scan | No | — |
+| **SCAN** | Extract external paths, secrets, and package refs from every script | No | — |
+| **RESOLVE** | Rewrite external/absolute paths to project-relative ones | No | — |
+| **ASK** | Surface gaps that need the author | Yes, for 5 specific gap kinds (see below) | `QUESTIONS.md` |
+| **FIX (deterministic)** | Apply the one fix it can make without an LLM | No | fix report in `AGENT_REPORT.md` |
+| **LLM-FIX** | Claude proposes a fix from a real stderr | No (only engages after a real failure) | `AGENT_REPORT.md` |
+| **RUN (native)** | Execute the master script | — | — |
+| **VALIDATE (native)** | Check every exhibit exists on disk | — | — |
+| **CLEAN** | Flag files unreachable from any exhibit | No | `CLEANUP.md` |
+| **RNG-CHECK** | Flag an unseeded stochastic call | No | `RNG-WARNINGS.md` |
+| **MIXED-LANGUAGE-CHECK** | Flag Rcpp/Cython/MEX with no declared build step | No | `MIXED-LANGUAGE-WARNINGS.md` |
+| **SORT-CHECK** | Flag a nondeterministic Stata sort feeding a tie-sensitive op | No | `SORT-WARNINGS.md` |
+| **FIDELITY** | Content-hash regenerated exhibits against author-supplied reference exhibits; localize a mismatch | No — but only runs at all if `reference_exhibit_dirs` was given at intake | `FIDELITY-REPORT.md` (written whenever it runs, clean pass or not) |
+| **COMPILE-CHECK** *(runs during GRAPH/ASK, not CLEAN)* | Standalone Fortran/C/C++ source with no build script | Yes | — (feeds a blocking ASK question) |
+| **GENERATE** | Write the Dockerfile (skipped by default) | — | `Dockerfile`, `.dockerignore` |
+| **BUILD (docker)** | Build the image | — | — |
+| **VALIDATE (docker)** | Re-run and validate inside the container | — | — |
+| **DELIVER** | Write the final README + report + zip | — | `README`, `DELIVERY_REPORT.md`, `.zip` |
 
-`--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — the Docker-phase steps (CLEAN onward) aren't individually stoppable yet, since they only run when Docker isn't skipped.
+Each of these is explained in full below — exact mechanism, what it will and won't catch, and a worked example. If you just want to run the tool, the table above is enough; read on if you want to know precisely what each check is doing before you trust it.
+
+`--stop-after` currently accepts `detect`, `graph`, `capture`, `scan`, `resolve`, `ask`, `fix`, `llm-fix`, `run`, or `validate` — CLEAN onward aren't individually stoppable yet, since they only run when Docker isn't skipped.
+
+### Tool reference
+
+#### DETECT — `confidentiality.py`
+
+The first thing that runs, before any file is opened or any copy made. Pure filename/stem matching — it never reads file contents. Two regex sets: a literal-substring list (`restricted`, `confidential`, `nda`, `hipaa`, `pii`, `microdata`, `census`, `irs`, `hmda`, `nlsy`, `psid`, `sipp`, `acs_pums`, …) and a contextual pattern for the word "admin" (`admin(?:istrative)?[_-]?(?:data|records?|microdata|panel)`) so a bare "admin" in a filename doesn't false-positive. Code/doc/output extensions (`.R`, `.py`, `.tex`, `.pdf`, …) are excluded from matching entirely — this is deliberately conservative to avoid false positives on things like a citation file.
+
+- **Blocking:** yes. A hit aborts before the working copy is made (or triggers a re-confirmation prompt).
+- **Example:** `census_microdata_2019.dta` → flagged (`microdata` substring). `census_add_toutain.Rd` → not flagged (`.Rd` is an excluded extension), even though "census" appears in the name.
+
+#### GRAPH — `graph.py`
+
+The largest module in the codebase, and the one everything else depends on. No AST, no LLM — pure regex, but a lot of it. It reads `paper.tex` for every `\includegraphics`/`\input`/`\include`/`\lstinputlisting`/`\includesvg` (and a handful of data-table macros), expanding any `\newcommand`/`\def` aliases first, to build the authoritative **exhibit list**. For each exhibit path, it tries to find the script that writes it, in three tiers:
+
+1. **Exact match** — some script's extracted write-call (`ggsave(...)`, `graph export ...`, `save ...dta`, `to_csv(...)`, etc. — one regex family per language) writes to that exact path.
+2. **Basename match** — no exact match, but some script writes a file with the same name in a different directory → flagged as `script_writes_wrong_path` (this is the one gap FIX can repair deterministically, below).
+3. **Copy/rename trace** — still nothing, but a `cp`/`shutil.copy`/Stata `copy`/`file.rename` call anywhere connects an existing write to the exhibit path one or more hops upstream.
+
+Data-file *reads* (`read.csv`, `use`/`import delimited`, `read_csv`, `CSV.read`, …) are extracted the same way and linked to whichever script's write-call produced them, which is what populates `DataFile.produced_by`. `script_order` (used by RNG-CHECK and by the demos' native-run loop) is a topological sort over those producer→consumer edges — not alphabetical, and not the order scripts appear in the paper.
+
+- **Blocking:** four gap kinds here are blocking (`exhibit_no_source_script`, `exhibit_missing_from_disk`, `exhibit_copied_but_no_source_script`, `input_missing_from_disk`); inline hand-typed tables/numbers in the `.tex` are flagged but non-blocking.
+- **Example:** `code/stata/prep.do` contains `save "data/x.dta", replace` → `DataFile(path=data/x.dta, produced_by=code/stata/prep.do)`. If `paper.tex` has `\input{output/Table1.tex}` and some script instead writes `output/table1.tex` (case mismatch), tier 2 catches it as `script_writes_wrong_path` — a gap FIX can rewrite automatically, no author input needed.
+
+#### CAPTURE — `capture.py`
+
+A lockfile-priority cascade, not inference-first: `renv.lock` → `Manifest.toml`/`Project.toml` → `environment.yml` → `requirements.txt` → `pyproject.toml` → (no lockfile, `.do` files present) `capture_stata_env()`, which gets the version by running `stata --version` against whatever binary `detect_stata()` finds on `PATH`, and the package list by statically scanning `.do` files for `ssc install`/`net install` lines (no live query of installed ado-files) → extension-based guess as a last resort. Each source produces an `EnvSpec` with a `confidence` score — an explicit lockfile is high confidence, an extension-based guess is low.
+
+- **Blocking:** no. Low confidence (below 0.5) is what triggers ASK's "when did you last run this?" question.
+- **Example:** a project with `renv.lock` → exact pinned R package versions, confidence high, no question asked. A Stata-only project with no lockfile standard to read → confidence 0.30 (the actual value the rcpp_rng demo prints) → ASK raises `env_last_run_date`.
+
+#### SCAN — `scan.py`
+
+Per-language regex scanners pulling three things out of every script: external paths (absolute Unix/Windows paths, classified by substring — Dropbox, OneDrive, Google Drive, iCloud, network share, HPC scratch, URL), secrets (filenames containing `secret`/`token`/`credential`/`password`, or extensions `.env`/`.pem`/`.key`), and package references. Pure extraction — zero side effects, nothing is rewritten here.
+
+- **Blocking:** no.
+- **Example:** `read.csv("/Users/jane/Dropbox/paper/data/x.csv")` → one external path, kind `"dropbox"`. A file named `.env` anywhere in the project → flagged as a secret, later excluded from the Docker build context.
+
+#### RESOLVE — `resolve.py`
+
+For every external path SCAN found, computes a project-relative target and does a literal find-and-replace of the exact quoted string in every script that uses it. Optionally "adopts" a language-idiomatic path helper afterward (R's `here::here()`, Python's `pathlib`, Julia's `@__DIR__`, MATLAB's `fullfile()`) as a separate, opt-in rewrite.
+
+- **Blocking:** no. Mutates scripts directly in the working copy; records a before/after pair per rewrite.
+- **Example:** `read.csv("/Users/jane/Dropbox/paper/data/x.csv")` → rewritten to `read.csv("data/x.csv")`.
+
+#### ASK — `ask.py`
+
+A dict-driven map from `GapKind` to a question — no LLM anywhere in this step. Five gap kinds block the pipeline until answered: `exhibit_no_source_script`, `exhibit_missing_from_disk`, `exhibit_copied_but_no_source_script`, `input_missing_from_disk`, and `compiled_language_no_build_script`. Everything else (inline tables/statistics, the Stata/MATLAB license question, the low-confidence "when did you last run this" question) is surfaced but doesn't halt anything.
+
+- **Blocking:** yes, for the five kinds above — writes `QUESTIONS.md` and sets `needs_author_input=True`.
+- **Example:** a Fortran file with no Makefile anywhere → `compiled_language_no_build_script` → blocks, asks for the exact compile command (expects a path/command-shaped answer, not free text).
+
+#### FIX (deterministic) — `fix_loop.py`
+
+Exactly **one** fix kind exists here: `script_writes_wrong_path` → `fix_write_path`, a literal quoted-string replace of the script's wrong output path with the one `.tex` actually expects — the same mechanism class as RESOLVE's rewrites, just targeting GRAPH's tier-2 gap instead of an external path. Two other `FixAction` kinds (`rewrite_path`, `add_missing_script_output`) exist in the schema but are only ever produced by the LLM dispatcher below, never by this deterministic one.
+
+- **Blocking:** no — this step is the fix, not a gate.
+- **Example:** script writes `output/table1.tex`; `.tex` expects `output/Table1.tex` → one `fix_write_path` action, string-replaced in the script, no author input and no LLM call needed.
+
+#### LLM-FIX — `llm_dispatcher.py`
+
+The only step that calls a live LLM, and only when the deterministic dispatcher has converged with gaps still open, or a native run actually failed. Uses `claude-sonnet-4-6` by default, escalating to `claude-opus-4-8` after 2 stalled/repeated proposals, and gives up after 3 stalls total. Each call is scoped tightly: the open-gaps list, a flat file listing of the working copy (max 200 entries), the last 2000 characters of stderr, and the list of fixes already tried (so it doesn't repeat itself) — not the whole project. It can propose exactly one of four actions per call: `install_package`, `rewrite_path`, `fix_write_path`, `add_missing_script_output`; only the first tool call in its response is used, any others are discarded.
+
+- **Blocking:** no — only engages after a real failure, doesn't gate anything on its own.
+- **Example:** a Stata run fails with `file survey_data.csv not found`; the dispatcher sends that stderr plus a directory listing; the model notices `survey.csv` actually exists and proposes `rewrite_path(script, "survey_data.csv", "survey.csv")`.
+
+#### RUN (native) — `runner.py`
+
+Plain `subprocess` dispatch by file extension: `.R`/`.r` → Rscript, `.do` → Stata (via `stata.py`, which locates the binary and parses the log), `.jl` → julia, `.py` → python, `.m` → MATLAB, `.sh` → bash. Fortran/C/C++ can't be "run" this way — they use the `compile_command` ASK's blocking question collected from the author.
+
+- **Example:** `run_natively(working_copy, master_script="code/simulate.R")` shells out to `Rscript code/simulate.R` and captures stdout/stderr/exit code.
+
+#### VALIDATE (native) — `runner.py`
+
+**Existence only.** For every exhibit with a known source script, checks `Path.exists()`. That's the entire mechanism — it does not open the file, does not check its size, does not look at its content in any way. A script that writes garbage, or writes nothing new because the file already existed, passes VALIDATE as long as the path exists afterward.
+
+- **Example:** `output/Table1.tex` exists after the run → `present`. A script that was supposed to write `output/fig2.pdf` but crashed silently before that line → `missing`, listed explicitly.
+
+#### CLEAN — `clean.py`
+
+"Reachable" is a conservative BFS, not a strict one — it would rather under-flag than delete something live. The seed set is every script that directly produces an exhibit plus every script in `graph.script_order`; two expansion passes then add any script whose filename *stem* appears as a literal substring in any other script's text (catches both "this sub-script is sourced/called by a reachable one" and "this orchestrator calls a reachable script by name"). Separately, every `DataFile.path` in the graph is reachable regardless. Everything else on disk — except prose/config extensions (`.tex`, `.md`, `.yml`, …) and a fixed always-keep filename list — is a candidate orphan.
+
+**Known limitation, not a bug**: an output file that *is* the exhibit itself (a figure PDF, a PNG) is never added to the reachable set — only scripts and data files are — so a figure the paper actually includes can show up as an "orphan." Documented in `demo/README.md`'s landuse_fanout and rcpp_rng sections; not something this check is meant to fix.
+
+- **Blocking:** no — first encounter writes `CLEANUP.md` and continues with default action "keep"; a second run parses and applies author choices (delete / archive / keep-with-reason).
+- **Example:** `old_cleaning_v3.R`, called by nothing, producing no exhibit → orphan, kind `script`. `output/fig1.pdf`, the actual figure the paper includes → also flagged orphan, kind `output` — the known limitation above, not a sign anything is wrong.
+
+#### RNG-CHECK — `rng_check.py`
+
+Per-language seed-regex / stochastic-call-regex pairs across 8 languages (R, Python, Stata, Julia, MATLAB, Fortran, C, C++ — 11 file extensions). Walks `graph.script_order` (falling back to sorted-path order for anything not graph-connected), tracking one boolean: once any script up to and including the current one has a real seed call, every stochastic call in every later script is considered covered — this is what lets one `set.seed()` in a master script cover everything it sources. A C++ RNG engine seeded from `std::random_device` does **not** count as seeded (entropy seeding is deliberately non-reproducible, so it's treated the same as no seed at all). The C++ patterns also cover Rcpp's embedding of R's own RNG (`Rcpp::rnorm`, `R::rnorm`, `norm_rand()`, `unif_rand()`, …), added specifically so an Rcpp routine drawing from R's RNG stream is caught the same way a plain R `rnorm()` call would be.
+
+- **Blocking:** no.
+- **Example:** `01_seed.R` has `set.seed(42)`; `02_analysis.R` has `rnorm(10)` with no seed of its own → not flagged, the upstream seed covers it. Swap which script runs first and the same `rnorm(10)` call is flagged.
+
+#### MIXED-LANGUAGE-CHECK — `mixed_language_check.py`
+
+Three independent sub-checks, one per embedding pattern. **Rcpp**: `library(Rcpp)` / `sourceCpp(...)` / `// [[Rcpp::` anywhere, or `LinkingTo: Rcpp` in `DESCRIPTION` → flagged if no `src/Makevars`/`Makevars.win`/`Makevars.in` exists anywhere in the project. **Cython**: `.pyx`/`.pxd` files or `pyximport`/`cythonize(...)` usage → flagged if no `setup.py` calling `cythonize()` and no `pyproject.toml` Cython build-system section. **MEX**: a C/C++ file defining `mexFunction` → flagged if no `.m`/`.sh` script calls `mex(...)`.
+
+This check is deliberately **non-blocking**, unlike COMPILE-CHECK below — the embedding language's own tool (`sourceCpp()`, Cython's build backend, `mex()`) usually *can* auto-compile with default flags, so the package genuinely runs; the risk is a silently different compiled binary if the author's own machine relied on a flag (an OpenMP flag, an include path, a C++ standard) that was never recorded anywhere in the package.
+
+- **Example:** `src/shocks.cpp` has `// [[Rcpp::export]]` and `#include <Rcpp.h>`, and no `src/Makevars` exists anywhere → one finding, non-blocking. The file's own comment can record what the author's personal (unshipped) `~/.R/Makevars` actually set — see `demo/rcpp_rng/src/shocks.cpp`.
+
+#### SORT-CHECK — `sort_check.py`
+
+Finds every `.do` file; skips the whole file if `set sortseed` appears anywhere in it (an explicit sign the author already thought about this). Otherwise, collects every `sort`/`gsort <varlist>` line lacking a `, stable` option, then scans the rest of the file for a `by`/`bysort ... : ... _n==1` or `_n==_N` pattern — "keep the first/last observation per group" — on the same line. If found, pairs it with the nearest *preceding* unstable sort as one finding.
+
+This exists because Stata's default `sort` breaks ties among equal key values with an internal random tiebreaker that is **not** guaranteed stable across runs, Stata editions (SE vs. MP), or machine thread counts — unlike R's/Python's/Julia's sort, which is specified to preserve input order for ties. See Stata's own [`sortseed` docs](https://www.stata.com/help13.cgi?sortseed=) and the [`sort` manual](https://www.stata.com/manuals/dsort.pdf).
+
+- **Blocking:** no.
+- **Example:** `sort region` (3 respondents share each region code) then `by region: keep if _n==1`, no `, stable`, no `set sortseed` anywhere in the file → one finding, citing both line numbers. Add `, stable` to the sort, or `set sortseed` anywhere in the file, and it's not flagged.
+
+#### FIDELITY — `fidelity_check.py` (wiring) + `check_exhibit_fidelity()` in `runner.py` (comparison)
+
+Only runs at all if the author gave at least one directory in `reference_exhibit_dirs` at intake ([§3](#3-minimum-requirements-what-the-author-must-provide)) — the output files (figures/tables) as they stood when the paper was accepted. There is no other source: the compiled paper PDF is NOT usable as a reference by this mechanism (it would need page extraction and a visual/text diff, not a byte compare); if the author has nothing preserved separately from their working project, this step reports `attempted=False` and does nothing further — there is no reference to reconstruct one from.
+
+When directories are given: `fidelity_check.py` rebuilds the dependency graph fresh (not reusing an earlier one — the mtime evidence below needs current mtimes), then for every exhibit with a real producing script, searches every given directory (in author-given order) for a file matching the exhibit's **basename** — not full path, since the reference directory's layout has no reason to mirror the working copy's. If the same basename turns up in more than one given directory, that's recorded as a collision (the first directory's hit is still used for the comparison, but the collision is surfaced, not silently resolved) rather than risk a wrong match reporting false confidence.
+
+For each match, `check_exhibit_fidelity()` compares **SHA-256** hashes — `hashlib.sha256(bytes).hexdigest()`, not MD5. On a hash mismatch, it walks the dependency graph backward from the exhibit's producing script through every upstream `DataFile` via the `produced_by` chain and reports a suspect for each one:
+
+- If the project is a **git repo** and the file is tracked: `git log -1 --follow --format=%H %ad %an` (a real subprocess call) → exact commit, date, author, reported with `confidence="high"`.
+- Otherwise: filesystem **mtime** → `confidence="low"`, with an explicit caveat that mtime is a lead, not proof (Dropbox sync, zip/unzip, and `scp` all rewrite mtimes without a real edit happening).
+
+Separately, it checks the *producing script itself* (not the upstream data) for a wall-clock/PID/tempdir call (`Sys.time()`, `time.time()`, `getpid()`, …) via `nondeterminism.py` — if found, the mismatch is annotated "may be expected, not drift" rather than attributed to any file. Note this only covers that specific nondeterminism signature; an unseeded RNG draw (a different failure mode — see RNG-CHECK) produces a hash mismatch with no upstream-file suspect and no nondeterminism note at all, which is a real, demonstrated limitation — see `demo/rcpp_rng/`.
+
+- **Blocking:** no, ever. **Written-ness is different from the siblings above**: `FIDELITY-REPORT.md` is written whenever the step actually runs (`attempted=True`), clean pass or not — unlike RNG-CHECK/MIXED-LANGUAGE-CHECK/SORT-CHECK, which only write on a finding. The author supplied a reference specifically to get an answer; a clean pass is itself worth confirming in writing. When `attempted=False`, nothing is written, but `DELIVERY_REPORT.md`'s Pipeline Summary table always carries a "not run — no reference exhibit directories were supplied" row either way, so the not-attempted state is visible in the final package too, not only recoverable by inspecting `PipelineResult` in code.
+- **Known limitation, not fixed**: if a reference directory lives *inside* the working copy (plausible — e.g. a version-controlled `replication/reference/` folder), CLEAN runs before this step and has no knowledge of it — it lands every file there in `CLEANUP.md` as an orphan, even while `FIDELITY-REPORT.md` right next to it says everything matches. Same class of gap already documented for the demo fixtures' own `reference/` directories (see `demo/README.md`'s landuse_fanout section).
+- **Example:** author gives `/Users/jane/old_submission/figs`; `output/fig1.pdf` matches a file there byte-for-byte → no finding. `output/Table1.tex` has no file named `Table1.tex` anywhere in the given directories → listed under "exhibits with no matching reference file," not silently skipped.
+
+#### COMPILE-CHECK — `compile_check.py`
+
+Finds every `.f90`/`.f95`/`.f`/`.for`/`.c`/`.cpp`/`.cc`/`.cxx` file, **excluding** any `.cpp`/`.cc`/`.cxx` that contains `// [[Rcpp::` or `#include <Rcpp.h>` (Rcpp-embedded sources are exempt — R's `sourceCpp()` *is* the build step for those, so this check would otherwise false-block every Rcpp package). For whatever compiled source remains, it looks for a build artifact: a named file (`Makefile`, `CMakeLists.txt`, `configure`, `build.sh`, `compile.sh`) at the project root or in `code/`, or any `.sh`/`.bat` script whose content invokes a compiler (`gcc`/`g++`/`gfortran`/`clang`/`cmake`/`make`).
+
+This is the one check in this whole list that **blocks** — a standalone Fortran/C/C++ source genuinely cannot be run without knowing the exact compile command, and DeadReckoning has no way to guess it from disk (shell history isn't on disk).
+
+- **Blocking:** yes — feeds the `compiled_language_no_build_script` gap into ASK.
+- **Example:** `code/simulate.f90`, no Makefile/build.sh anywhere → blocks, asks for the exact compile command. An Rcpp-tagged `.cpp` sitting right next to it with no Makevars is exempt from this check (but still picked up, non-blocking, by MIXED-LANGUAGE-CHECK above).
+
+#### GENERATE / BUILD / VALIDATE (docker) — `docker.py`
+
+**GENERATE** writes a templated `Dockerfile`; for R, the base image is chosen by rule (geospatial packages present → `rocker/geospatial`, Stan packages → `rocker/stan`, 3+ tidyverse packages → `rocker/tidyverse`, else `rocker/r-ver`), tagged to the version/snapshot date CAPTURE found. System (apt) dependencies are mapped from the package list. `.dockerignore` excludes the secrets SCAN found plus all data directories. **BUILD**/**VALIDATE (docker)** are literal `subprocess.run(["docker", "build", ...])` / `["docker", "run", ...]` calls; failures are parsed for missing-package patterns and fed back into the Dockerfile — a Docker-specific echo of the native FIX loop.
+
+- **Example:** an R project using `sf` and `terra` gets `rocker/geospatial:<version>` instead of the generic `rocker/r-ver` image.
+
+#### DELIVER — `deliver.py`
+
+Renders the final `README` (AEA-style computational-requirements section, auto-filled from the exhibit→script table GRAPH built) and `DELIVERY_REPORT.md`, then zips the working copy with `zipfile`, excluding hidden/internal directories and DeadReckoning's own working files (`QUESTIONS.md`, `CLEANUP.md`, etc.). There is no runtime measurement anywhere in the pipeline — `runtime_estimate` is the author's own intake answer ("minutes"/"hours"/"days"), never a measured wall-clock value. `DELIVERY_REPORT.md`'s Pipeline Summary table includes a Fidelity row stating whether FIDELITY ran at all and, if so, how many exhibits matched.
+
+#### DATA-EXHIBIT-MAP.md — `provenance.py`
+
+Not a separate check — reuses the `produced_by` edges GRAPH already built. For each exhibit, walks backward through however many intermediate write/read hops stand between it and a raw (non-produced) input, rendering one traced chain per exhibit.
+
+- **Example:** `Table1.tex` ← `simulate.R` ← `survey_prepped.dta` ← `prep_survey.do` ← `survey_raw.csv` (raw, no producer) → rendered as one line in the data availability statement.
 
 Other commands, for a quicker look without running anything:
 ```bash
@@ -82,11 +241,11 @@ deadreckoning graph /path/to/your/project   # dependency graph + gap report
 deadreckoning detect-stata                  # is Stata installed and on PATH?
 ```
 
-**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has two runnable, narrated walkthroughs — a rigged toy paper and a slice of a real published package — that show every pipeline step live, including the LLM catching and fixing a real broken path. See [`demo/README.md`](demo/README.md).
+**Want to see it work before pointing it at your own paper?** [`demo/`](demo/) has six runnable, narrated walkthroughs — a rigged toy paper, two slices of real published packages, two cases where nothing crashes at all, and a 3-language Rcpp package with three static leads found before anything runs. The first three show every pipeline step live, including the LLM catching and fixing a real broken path; the fourth shows a run that passes DETECT through VALIDATE cleanly and is still wrong, and how FIDELITY catches it; the fifth scales that up to one shared input feeding six real exhibits, only three of which are actually stale, and shows FIDELITY telling them apart; the sixth shows SORT-CHECK, MIXED-LANGUAGE-CHECK, and RNG-CHECK each catching a different gap statically, and FIDELITY correctly flagging drift but misattributing its cause when the real cause is nondeterminism rather than a changed file. See [`demo/README.md`](demo/README.md).
 
 ---
 
-The rest of this document is the full design spec: the reasoning behind each step, the confidentiality protocol, and the problem areas that make this hard. Read on if you want to understand how it works, extend it, or check what guarantees it actually makes — skip it if you just want to run the tool.
+The rest of this document explains the reasoning behind each step, the confidentiality protocol, and the problem areas that make this hard — grounded in what's actually implemented today, with any gap between that and a reasonable future feature called out explicitly (and collected in [§11](#11-open-questions)) rather than described as current behavior. Read on if you want to understand why it works this way or check what guarantees it actually makes — skip it if you just want to run the tool.
 
 ---
 
@@ -98,15 +257,15 @@ Most economics papers take years to write. Code accumulates across multiple mach
 
 Then the paper is accepted. The journal asks for a replication package. The author sits down to verify that everything still runs — and discovers it does not. Scripts reference files that moved. Software versions changed. Some figures exist on disk but nobody is sure which script produced them. A table in the paper cannot be traced to any piece of code.
 
-**This is the moment this tool is designed for.** Not the ideal scenario where an author has been maintaining a clean, reproducible project all along — that author doesn't need this tool. This is for the other 95%: the author who has a paper, has code, has results, and now needs to reconstruct the computational pipeline that produced them.
+**This is the moment this tool is designed for.** Not the ideal scenario where an author has been maintaining a clean, reproducible project all along — that author doesn't need this tool. This is for the author who has a paper, has code, has results, and now needs to reconstruct the computational pipeline that produced them.
 
-The first and primary job of this agent is to help the author get their project into a state where all outputs can be regenerated from a clean start. Docker is what that state is packaged into at the end — so that a replicator at a journal can verify the results without installing the author's exact software stack by hand. But Docker is the last step, not the point. A Docker image built on top of a broken or incomplete pipeline is still broken. The agent works on the pipeline first.
+The first and primary job of this agent is to help the author get their project into a state where all outputs can be regenerated from a clean start. Docker is what that state is packaged into at the end — so that a replicator at a journal can verify the results without installing the author's exact software stack by hand. 
 
 ### Why this is hard to do by hand
 
 The author knows the project better than anyone, but faces a specific problem: the work was done incrementally over years, and the decisions made along the way — which version of a package was installed, where the data file was saved, which script produced a given figure — were never written down because they seemed obvious at the time. Recovering that information requires cross-referencing file timestamps, code history, output files, and the paper itself simultaneously. This is tedious and error-prone for a person. It is tractable for a tool that can read all of these sources at once and ask focused questions about what it cannot determine automatically.
 
-The naive version of this tool — "generate a Dockerfile from a project" — solves perhaps 10% of the real problem. Writing `FROM rocker/r-ver`, `COPY . .`, and an entrypoint is already handled by static tools. What is actually hard is reconstructing a working pipeline from a messy, undocumented project, then verifying it runs, then fixing what breaks — a back-and-forth process that requires reading the project, asking questions, and trying things repeatedly.
+What is actually hard about this problem is reconstructing a working pipeline from a messy, undocumented project, then verifying it runs, then fixing what breaks — a back-and-forth process that requires reading the project, asking questions, and trying things repeatedly.
 
 ---
 
@@ -123,102 +282,46 @@ The naive version of this tool — "generate a Dockerfile from a project" — so
 
 ## 3. Minimum requirements: what the author must provide
 
-These are the only inputs the agent cannot find on disk by itself. Everything else — package versions, dependency lists, platform details — it reconstructs. The agent asks for these items first, in plain language, before doing anything else.
+`intake.py` runs a fixed, ordered question list (`deadreckoning.intake.questionnaire()`) before anything else happens. This is the actual list, in order — not a freeform conversation, a specific CLI prompt per item:
 
-| # | What | Why the agent can't find it on its own |
-|---|------|----------------------------------------|
-| 1 | Location of `paper.tex` and `appendix.tex` (or equivalent) | Starting point for tracing which outputs the paper uses; without it the agent has no authoritative list of exhibits |
-| 2 | Location(s) of all code and data | Project may be split across directories, drives, or cloud folders with no common root |
-| 3 | Location of any existing documentation (`README`, data dictionaries, codebooks) | May be in a separate folder, a shared drive, or a co-author's notes — not findable by scanning the code directory |
-| 4 | Location(s) of produced outputs (figures, tables, processed datasets) | Authors often store outputs outside the main project folder (`submission/`, `Dropbox/Paper/figures/`) |
-| 5 | When was all (or which part of) the output last successfully produced? | Gives a date that can be used to reconstruct software versions (see Section 5.2); no file timestamp on disk is as reliable as the author's own memory — "I reran everything before the R&R submission in March 2023" |
-| 6 | Proprietary software in use (Stata, MATLAB, etc.) and whether a license is available on this machine | Cannot be determined from code alone; determines early whether a bring-your-own-license path is needed |
-| 7 | Any data that is restricted, confidential, or cannot be redistributed | A legal or ethical constraint, not a technical one; must be known upfront to choose the right approach (separate data folder, access instructions, synthetic substitute) |
-| 8 | Rough expected runtime for a full replication | Order-of-magnitude only ("minutes", "hours", "days"); determines whether the validation step runs the full package or a shorter subset, and how much to optimize the fix loop |
-| 9 | Target journal or submission standard | AEA, JPE, ReStud, etc. have different README templates, data citation requirements, and package structures; determines output format |
+| # | Key | Prompt | Mandatory? |
+|---|-----|--------|------------|
+| 1 | `restricted_data` | Does this project use data that is confidential, restricted, or covered by a DUA/IRB/NDA? | Yes — asked first, see [§4](#4-confidentiality-and-restricted-data) |
+| 2 | `paper_tex_path` | Where is your `paper.tex`? (Enter to auto-detect) | No |
+| 3 | `code_root` | Where is your code? | No |
+| 4 | `master_script` | What is the master/entry script? (Enter to auto-detect) | No |
+| 5 | `data_root` | Where is your data? | No |
+| 6 | `reference_exhibit_dirs` | Where are your output files stored — the figures/tables in your conditionally accepted paper PDF, right now? One or more absolute paths, comma-separated. | No — this is FIDELITY's reference; see its Tool reference entry below |
+| 7 | `last_run_date` | When did you last run this project successfully? | No |
+| 8 | `languages_claimed` | Which languages does this project use? (Enter to auto-detect) | No |
+| 9 | `has_stata_license` / `has_matlab_license` | Is a license available on this machine? | No — only shown if that language was claimed in #8 |
+| 10 | `runtime_estimate` | Roughly how long does a full run take? | No |
+| 11 | `target_journal` | Target journal or submission standard? | No |
 
-**How these are collected:**
-
-The agent asks for items 1–5 in a single opening conversation, before making the working copy. **Item 7 (confidential/restricted data) is asked before any file is opened, because it determines what the agent is allowed to read** — see Section 4 for the full protocol. Items 6, 8, 9 are asked later, after the initial scan gives the agent enough context to ask focused questions rather than a generic form. The author is never asked for information the agent already found.
+Everything the author leaves blank falls back to auto-detection where one exists (e.g. `master_script`, language). There is no separate question for "where is your existing documentation" — that item doesn't exist in the current question list, despite being a natural thing to ask; see [§11](#11-open-questions). `--skip-intake` bypasses this entirely and relies only on the filename-based restricted-data check in [§4](#4-confidentiality-and-restricted-data).
 
 ---
 
 ## 4. Confidentiality and restricted data
 
-### 4.0 The core problem: this agent runs on remote servers
+### 4.0 Why this matters
 
-This agent is powered by a large language model running on remote servers. Anything it reads and reasons about — file contents, variable names, summary statistics, log snippets — is sent over the internet to that service. For most research projects this is fine. For projects with restricted or confidential data it may be **illegal**, regardless of what the agent does with the information.
+The only step in this pipeline that calls a remote LLM is LLM-FIX (see Tool reference above), and even that sends a narrow, scoped payload — an open-gaps list, a filename listing, the last 2000 characters of stderr, and a list of fixes already tried. It never sends data file contents. But DeadReckoning does not try to be clever about guessing what counts as sensitive, and the rest of the pipeline reads and copies files freely once it starts. If there's any real chance a project contains restricted or confidential data — governed by a data use agreement, an IRB protocol, GDPR, or an NDA — the correct answer is not to proceed at all, which is exactly what the actual implementation does (below), not a graduated "send less" mode.
 
-Common legal frameworks that prohibit or limit this:
-- Data use agreements (DUAs) with statistical agencies (Census Bureau, administrative record providers, national statistics offices)
-- IRB/ethics protocols that restrict data to named researchers on approved machines
-- EU GDPR and national equivalents — personally identifiable microdata cannot be sent to third-party processors without explicit consent
-- Non-disclosure agreements with data providers (firm-level data, health records, etc.)
+### 4.1 What actually happens: two checks, either one aborts the whole run
 
-The agent cannot determine which framework applies. The author must say.
+**Before any copy is made**, two independent checks run, and either one stops the pipeline cold:
 
-### 4.1 The required check: ask before reading anything
+1. **The intake question.** `restricted_data` is the first, mandatory question in the intake questionnaire ([§3](#3-minimum-requirements-what-the-author-must-provide)): "Does this project use data that is confidential, restricted, or covered by a DUA/IRB protocol/NDA?" If the author answers yes, `run_pipeline()` returns immediately with `error="Restricted data detected..."` — `working_copy` is literally set to `project_root` as a sentinel (no copy was ever made) and nothing past this point runs.
+2. **The filename heuristic** (`confidentiality.py`'s `check_restricted`, already documented under DETECT in the Tool reference) — runs even if the author answered "no" to the question above, and also aborts on a hit. Filenames containing `restricted`, `confidential`, `nda`, `hipaa`, `pii`, `microdata`, `census`, `irs`, `hmda`, `nlsy`, `psid`, `sipp`, `acs_pums`, or the contextual "admin..." pattern trigger it. An explicit author override exists for a specific false-positive hit (`restricted_override_safe`) — without it, any hit aborts, full stop.
 
-**Before opening any file, before scanning any directory, before making the working copy**, the agent asks one question:
+**What does not exist**: there is no "restricted mode" that continues with some filtered subset of content sent to an LLM, no log-file redaction, no figure-description-only transmission, no local-execution-summary pipeline. Those would be reasonable features to build, but today the only two outcomes are "proceed normally" or "stop before touching anything." A real implementation of graduated, filtered access is tracked as an open idea in [§11](#11-open-questions), not as current behavior.
 
-> "Does this project use data that is confidential, restricted, or covered by a data use agreement, IRB protocol, or non-disclosure agreement?"
+### 4.2 What this does and doesn't protect against
 
-This is the first thing the agent does, shown clearly with a plain-language explanation of why it matters:
-
-> "I need to ask this before doing anything else because I am an AI service running on remote servers. If you have restricted data, I must be careful not to read its contents — only its structure — and I'll explain exactly what I will and won't send over the internet. If you're unsure whether your data qualifies, assume it does and answer yes."
-
-**If the answer is yes**, the agent enters **restricted mode** for the rest of the session. This cannot be changed without restarting.
-
-**If the answer is no**, the agent proceeds normally, but also runs a secondary check (section 4.2) that may switch to restricted mode automatically.
-
-### 4.2 Automatic detection as a secondary check
-
-Even if the author answers no, the agent looks for signs of restricted data during the scan phase and warns if it finds any:
-
-- Filenames containing: `restricted`, `confidential`, `nda`, `hipaa`, `pii`, `microdata`, `admin`, `census`, `irs`, `hmda`, `nlsy`, `psid`, `sipp`, `acs_pums`
-- Presence of a DUA, data access agreement, or IRB document anywhere in the project
-- Code patterns suggesting restricted data: `set seed` with large N and no public URL, `infile using` with a non-public path, data files that are not downloadable and not cited
-
-Any match triggers: "I found something that may indicate restricted data. Before I read any data files, please confirm: is this project covered by a data use agreement or IRB protocol?"
-
-### 4.3 Restricted mode: what the agent will and will not send
-
-In restricted mode the agent follows strict rules about what it transmits:
-
-| Content type | Sent to the AI service? |
-|-------------|------------------------|
-| Code files (`.R`, `.do`, `.jl`, `.py`, `.m`) | **Yes** — code is not data |
-| File paths and directory structure | **Yes** — paths are not data values |
-| Data file names and sizes | **Yes** — these are just labels |
-| Variable names referenced in code | **Yes** — taken from code, not from the data file |
-| Data file *contents* (any row, any value) | **No** |
-| Log files and `.Rhistory` | **Filtered** — scanned locally first; lines containing numeric arrays, data frames, or observation counts are removed before anything is sent |
-| Output files (tables, figures) | **Filtered** — figures sent as a description of shape and type only; tables with real statistics are not sent; the agent works from the file's existence and format, not its values |
-| Data structure extracted from files | **Yes, but only via local execution** — the agent runs a local script (`nrow`, `names`, `str()`, `describe`) on the author's machine and receives only a summary (variable names, types, value ranges); no individual observations are sent |
-
-The agent states these rules clearly before proceeding and records them in `AGENT_REPORT.md`.
-
-### 4.4 Generating a synthetic substitute in restricted mode
-
-The synthetic data substitute (see section 7.3) is especially important here and must follow the same rules. Generation happens entirely on the author's machine:
-
-1. The agent writes a local script that reads the real data and outputs only its structure (variable names, types, min/max, number of rows, categories if applicable) — no individual observations.
-2. The author runs the script locally (or the agent runs it as a local command, never sending data to the AI service).
-3. The structure summary — safe to send — goes to the AI service, which writes code to generate a synthetic dataset.
-4. That code runs locally, producing synthetic data.
-5. The synthetic data is checked locally to confirm it has the right structure before being added to the working copy.
-
-No real data values are sent over the internet at any point.
-
-### 4.5 What the agent cannot guarantee
-
-Restricted mode substantially reduces risk but cannot eliminate it. The agent must be honest about what remains:
-
-- **Code that contains data values** — hardcoded constants or inline results derived from the data will be sent as part of code files. The agent cannot tell the difference between a hardcoded model parameter and a hardcoded data value.
-- **What the author types** — if the author writes data values into the conversation ("the mean wage in our sample is 42,300"), those values are sent.
-- **The AI provider's own data handling policies** apply. The author should read these before proceeding if the DUA requires it.
-
-The agent should tell the author to consult their institution's data governance office or the terms of their DUA before using any AI-assisted tool on restricted data.
+- **Code is read and copied freely once the pipeline proceeds** — including any hardcoded constants or inline results a script happens to contain. The filename heuristic and the intake question are the only gates; neither one inspects code or data content for sensitive values.
+- **The author's "no" is taken at face value.** If a project genuinely contains restricted data under a name the filename heuristic doesn't recognize, nothing else catches it.
+- **The AI provider's own data handling policies** apply to whatever LLM-FIX does send (gaps list, filenames, stderr excerpt) if that step ever runs. The author should check their DUA/IRB terms before running this on anything sensitive, same as with any tool that reads project files.
 
 ---
 
@@ -234,140 +337,50 @@ Docker is added on top at the end. The package must run on the author's own mach
 
 ### 5.0 The typical entry point: "paper accepted — does it still run?"
 
-The tool is designed for a specific, very common moment: **the author just received acceptance and needs to verify that the project reproduces before submitting the replication package to the journal**. At this point:
-
-- The paper may have been submitted 18 months ago.
-- The author's machine has been updated since.
-- Data files may have moved or been renamed.
-- Some outputs exist on disk but nobody is certain which script produced them.
-- There is no lockfile, no Docker image, possibly no `master.do`.
-
-The obvious instruction — "just run everything" — fails immediately. The agent's first job is **diagnostic, not generative**: establish the current state of reproducibility before attempting to containerize anything.
-
-#### Initial diagnostic conversation
-
-Before touching Docker, the agent works through a structured set of questions, driven by evidence on disk rather than asking the author to remember things:
-
-- Look at every output file (figures, tables, processed datasets) and ask: "Is this present? If yes, can we trace it back to a script?"
-- Find outputs with no matching write command — files in `output/` or `figures/` with no corresponding `savefig`/`ggsave`/`graph export` call in any script. Flag these explicitly: "I found `fig3b.pdf` but no script that writes it. How was this produced?"
-- Find scripts that reference data not present in the project directory. Flag with path and last-modified time.
-- Find scripts that reference each other in a cycle, or that are never called from any master script.
-
-The agent builds an **output dependency graph** rooted at the LaTeX source:
-
-```
-paper.tex → exhibit file (fig3b.pdf, tab2.tex, ...) → script → data → raw source
-```
-
-The `.tex` file is the definitive list of what the paper actually uses. Everything else follows from there. Gaps in the graph — an exhibit that exists on disk but has no script that writes it, or an exhibit referenced in `.tex` that doesn't exist at all — are what need to be fixed. Only once the graph is complete (or remaining gaps are explicitly accepted) does containerization begin.
-
-#### "How did you generate this?" as a focused question
-
-When an output cannot be traced automatically, the agent asks a specific question rather than a general one:
-
-> "I found `fig3b.pdf` (last modified 2023-11-14). I couldn't find any script that writes this file. Was it produced by one of these scripts? [list candidates by last-modified time and topic]. Or was it generated interactively — e.g., you ran something in the console and saved manually?"
-
-The answer drives a concrete action: either trace the script, recover the interactive commands from `.Rhistory`/Julia REPL history, or mark the output as unrecoverable and document it in `AGENT_REPORT.md`.
+The tool is designed for a specific, very common moment: the author just received acceptance and needs to verify the project still reproduces before submitting the replication package. At that point, data files may have moved or been renamed, software versions have drifted, and nobody is certain which script produced which output. "Just run everything" fails immediately — the real first job is diagnostic, not generative: GRAPH has to build a complete picture of what traces to what before any native run or containerization is worth attempting. GRAPH's actual mechanism (regex-based `.tex` parsing, three-tier script matching, gap detection) is documented in full under **GRAPH** in the [Tool reference](#tool-reference) above — this section is the motivation for why that step exists and runs first, not a second description of how it works.
 
 ### 5.1 Safety: working copy first, always
 
-Before the agent touches a single file, it makes a complete copy of the project to a new location and tells the author clearly. This happens before any diagnosis, before any scan, before anything else.
+`run_pipeline()` makes a full copy of the project (`shutil.copytree`) before any scan, diagnosis, or modification happens, and never touches the original. That's the actual guarantee: a plain recursive copy to a temp directory, nothing more sophisticated.
 
 ```
 Your project:  /Users/you/Dropbox/JPE_paper/          ← never touched
-Working copy:  /Users/you/JPE_paper_repro_2026-06-04/ ← agent works here only
+Working copy:  /tmp/dr_xxxxxxxx/JPE_paper/            ← everything happens here
 ```
 
-The agent states this explicitly before proceeding:
+**What this does not currently do**, despite being reasonable things to want: there is no disk-space check before copying (a project with data too large for the destination will just fail partway through, not get detected in advance and offered a workaround); there is no "ask permission before copying large files" step — everything in the project directory is copied, no size-based confirmation; and there is no git repository initialized inside the working copy for undo purposes — mistakes during the fix loop are not currently recoverable via git, only by re-running from the untouched original. These are tracked as open ideas, not current behavior — see [§11](#11-open-questions).
 
-> "I've made a complete copy of your project at `/Users/you/JPE_paper_repro_2026-06-04/`. I will only ever modify files inside that folder. Your original project is not touched. If you want to undo everything I've done, delete that folder."
-
-**Why a copy is better than git for this audience:**
-
-Git is the right tool for this in principle. In practice, explaining "I initialized a repository and committed your project so we can roll back changes" to an author who doesn't know git introduces something new to understand and something new to be afraid of. A copy is immediately, obviously safe — the author can open Finder or Explorer, see their original folder sitting there unchanged, and understand without any explanation that nothing happened to it. That is the trust the tool needs to get started.
-
-Once the working copy exists and the author is comfortable, the agent quietly initializes a git repository inside the copy and commits after each substantive change — purely so it can undo mistakes during the fix loop. This is never shown to the author unless something goes wrong.
-
-**What the copy includes:**
-
-- All code files in the project directory
-- All data files present locally, regardless of size (copied once; the question of data placement is resolved later)
-- Symbolic links resolved and copied as real files — no broken references in the working copy
-- External data referenced by absolute path: the agent asks permission before copying large files and states sizes explicitly
-
-**What the copy does not include:**
-
-- Nothing outside the declared project root is copied without explicit item-by-item confirmation
-- No credentials, no `.env` files, no SSH keys — the agent scans for and excludes these before copying, and reports what it excluded
-
-**When data is too large to copy:**
-
-If the project requires input data large enough that copying it would fill the available disk, the agent detects this before attempting (by comparing total data size against free space on the destination) and offers a practical alternative: the working copy is made without the large files, and the agent reads them from their original location for the duration of the session. This is a temporary workaround — the agent records it in `AGENT_REPORT.md` as an unresolved problem. The practical long-term solution — an external drive with enough space, placed alongside the working copy — is suggested plainly: "A USB drive or external SSD with at least X GB free would let us make a self-contained copy."
-
-**Before copying, the agent shows:**
-- Total size of the project directory
-- Any files it will exclude (large data it's asking about, credentials it's excluding automatically)
-- The destination path
-
-One confirmation from the author, then the copy runs. Everything after that happens in the copy.
+Secrets (filenames matching `.env`, `token`, `credential`, `password`, `.pem`, `.key` — the same patterns SCAN uses) are detected after the copy is made, not excluded from it; they're reported and excluded from the later Docker build context, not from the working copy itself.
 
 ---
 
 ### 5.2 How software versions are reconstructed (best to worst)
 
-1. **Read the live environment first.**
-   If the project last ran on this machine, the installed software is still there. Reconstruct the version list directly:
-   - R: `renv::snapshot()`, or `sessionInfo()` / `installed.packages()`
-   - Python: `pip freeze`, `conda env export`
-   - Julia: existing `Manifest.toml`, `Pkg.status()`
-   - Stata: `creturn list` (version), `ado dir` (installed add-ons)
+1. **Read whatever lockfile already exists first.** `renv.lock`, `Manifest.toml`/`Project.toml`, `environment.yml`, `requirements.txt`, `pyproject.toml` — a static parse, not a live session query. None of R/Python/Julia get a live `sessionInfo()`/`pip freeze`/`Pkg.status()` subprocess call today; if no lockfile exists, the cascade falls straight to steps 2–3 below for those languages.
 
-   A successful live read makes most follow-up questions unnecessary.
+   **Stata is the one exception with a real live-environment read**: no lockfile standard exists for it, so `capture_stata_env()` runs `stata --version` against whatever binary is on `PATH` to get the version (not `creturn list` inside a running session — no session is started), and finds add-ons by statically scanning `.do` files for `ssc install`/`net install` lines, not by querying installed ado-files live.
 
 2. **Use timestamps to find a date.**
-   Exact versions are often unknown, but a *date* is usually recoverable and maps to a known software snapshot (Posit Package Manager for R, Julia registry state, conda channel state). Sources: `.Rhistory`, `.RData` last-modified time, git log, output file timestamps, PDF creation date. The author could not easily derive "use the 2021-03-15 CRAN snapshot"; the agent can, once it has the date.
+   Exact versions are often unknown, but a *date* is usually recoverable and maps to a known software snapshot (Posit Package Manager for R, Julia registry state, conda channel state). Sources, in priority order: `.Rhistory`'s last timestamp (R only), `git log` on the project's own repo, or — as a last resort — the latest mtime among the project's own source files. The author could not easily derive "use the 2021-03-15 CRAN snapshot" from any of this by hand; a date plus a package list gets there automatically.
 
 3. **Read the code to find the package list.**
    Parse every `library()`/`require()`, `using`/`import`, `ssc install`/`net install`, MATLAB `addpath`. This reliably produces the set of packages needed. **Package set + date ≈ versions.**
 
 ---
 
-## 6. Agent steps
+## 6. Agent steps: why this order
 
-```
-DETECT → CAPTURE → SCAN → GRAPH → ASK → RESOLVE → (FIX ↻ native) → VALIDATE (native) → CLEAN → GENERATE → BUILD → VALIDATE (container) → (FIX ↻ Docker) → DELIVER
-```
+Every step's exact mechanism is in the [Tool reference](#tool-reference) above — this section is the sequencing rationale, not a second description of what each step does. The pipeline has two distinct phases separated by the native validation gate: **everything up to and including VALIDATE (native) is about getting the replication package to work; Docker does not appear until that is done.** A broken pipeline wrapped in a Docker image is still a broken pipeline.
 
-The pipeline has two distinct phases separated by the native validation gate. **Everything up to and including VALIDATE (native) is about getting the replication package to work.** Docker does not appear until that is done. A broken pipeline wrapped in a Docker image is still a broken pipeline.
+**Phase 1 — understand the project** (DETECT, CAPTURE, SCAN, GRAPH): read-only. GRAPH is the step everything else depends on — it has to produce a complete picture of what traces to what before ASK can know what's actually missing.
 
-### Phase 1: Understand the project
+**Phase 2 — repair the pipeline** (ASK, RESOLVE, FIX, LLM-FIX): ASK only surfaces what GRAPH/CAPTURE genuinely couldn't resolve from disk. FIX is bounded, not an unconditional retry loop — the deterministic dispatcher runs up to 10 iterations, the LLM dispatcher up to 5, and the LLM step itself gives up after 3 stalled proposals (see **FIX (deterministic)** and **LLM-FIX** in the Tool reference). A run that still fails after that is reported as failed, not retried indefinitely.
 
-1. **DETECT** — identify languages, master script (`master.do`, `run.R`, `main.jl`), existing lockfiles, OS and processor architecture of the host (especially Apple Silicon).
-2. **CAPTURE** — read the live software environment (Section 5.2). Reconstruct installed package versions from the live session before asking the author anything.
-3. **SCAN** — extract all dependencies from code; find secrets, large data files, and absolute paths; locate every path to data not present inside the project directory.
-4. **GRAPH** — build the output dependency graph rooted at the LaTeX source: `paper.tex → exhibit files → scripts → intermediate data → raw data`. Every exhibit in the paper must trace back to a script. Gaps — an exhibit with no source script, a script with no data, numbers typed directly into the `.tex` — are flagged explicitly for resolution in the next phase. This step drives everything that follows; the agent does not proceed past it until the graph is as complete as the disk allows.
+**Phase 3 — validate natively** (RUN, VALIDATE): VALIDATE checks that every exhibit exists on disk after the run — it does **not** delete stale outputs first; a leftover file from a previous run that the current run never touches will still read as "present."
 
-### Phase 2: Repair the pipeline
+**Phase 4 — clean and containerize** (CLEAN, RNG-CHECK, MIXED-LANGUAGE-CHECK, SORT-CHECK, FIDELITY, GENERATE, BUILD, VALIDATE container): the three non-blocking static checks run right after CLEAN, before Docker — see their entries in the Tool reference for what each one matches. FIDELITY runs last of the four, after them — content-hash comparison against an author-supplied reference, only if `reference_exhibit_dirs` was given at intake; see its own entry in the Tool reference. GENERATE/BUILD write and build a `Dockerfile` and `.dockerignore`; there is no separate `run.sh` or `docker-compose.yml` file — the equivalent `docker run` invocation (volume mount, license bind-mount, platform flag) is built and executed in-process by `docker.py`, not materialized as a standalone script.
 
-5. **ASK** — ask the author only what the disk could not answer: "when did you last run this?", "how was `fig3b.pdf` produced?", "do you have a Stata license?", "where is the raw LFS data?". Every question is grounded in something the GRAPH step could not resolve automatically. The author is never asked for information already found on disk.
-6. **RESOLVE** — translate what was captured and what the author confirmed into exact version specifications: a dated Posit Package Manager snapshot, a pinned Julia manifest, a conda export, a specific Stata version declaration. Rewrite all absolute paths to be relative to the project root. Add download steps for any public data accessed by URL.
-7. **FIX loop (native)** — delete all outputs and run the master script natively on the author's machine. Read the error; fix the pipeline — a missing package, a broken path, a script that writes to the wrong location, a wrong version pinned. Repeat until the native run completes without error and produces every exhibit the paper uses. **This loop is the core of the product.** The agent does not move to containerization until it passes.
-
-### Phase 3: Validate natively
-
-8. **VALIDATE (native)** — delete all outputs a final time and run the full master script natively. Every exhibit in the paper must be regenerated. A run that finds pre-existing outputs and exits without doing anything is not a success. Measure and record wall-clock runtime. This is the gate: the replication package is now a working deliverable independent of Docker.
-
-### Phase 4: Clean and containerize
-
-9. **CLEAN** — show the author all files not reached by the dependency graph (abandoned scripts, superseded data, figures cut from the draft) and offer three choices per group: delete, archive, or keep with a documented reason. See Section 7.6.
-10. **GENERATE** — write the Docker setup: `Dockerfile` (software environment only — no data, no `COPY` of data files) + `run.sh` / `docker-compose.yml` that attaches the replication package folder as a volume at run time + `.dockerignore`. Also write the computational requirements README (AEA format), with the runtime from step 8 inserted automatically.
-11. **BUILD** — run `docker build`, with `--platform` chosen based on proprietary software requirements (default `linux/amd64` for Stata/MATLAB; see Section 7.7). The image is intentionally small: operating system + language runtime + packages, nothing else.
-12. **VALIDATE (container)** — delete all outputs and run the master script inside the container with the replication package folder attached as a volume. Must reproduce every exhibit, same as the native run. Measure and record container runtime separately. Both native and container runtimes go into the README.
-13. **FIX loop (Docker)** — if the container run fails, read the error; adjust the Dockerfile (a missing system library, a wrong base image tag, an architecture mismatch). Rebuild and rerun. The native pipeline is already fixed; these errors are environment packaging problems, not pipeline problems.
-
-### Phase 5: Deliver
-
-14. **DELIVER** — hand the author a complete replication package (Section 9): the cleaned project directory, the README, `data-manifest.csv`, `AGENT_REPORT.md`, and the Docker setup. The report states plainly what was recovered automatically, what the author confirmed, what couldn't be resolved, and what the runtime was. Every decision is explained in plain language so the author can respond to a reviewer who asks about it.
+**Phase 5 — deliver** (DELIVER): writes the final `README`, `DELIVERY_REPORT.md`, and a `.zip` of the working copy — see [§9](#9-output-files) for the exact file list.
 
 ---
 
@@ -391,145 +404,40 @@ The agent must detect Stata/MATLAB use early and follow the appropriate path —
 
 ### 7.3 Data and confidentiality
 
-Data is **never** copied into the Docker image. This is an absolute rule, not a preference. The replication package folder (containing code and data) is attached to the container at run time. The image contains no data and can be pushed to a public registry without risk of exposing anything.
+Data is **never** copied into the Docker image. The generated Dockerfile has no `COPY` instructions for data files, and `.dockerignore` excludes data directories — this is enforced by what the Dockerfile-writing code actually generates, not a warning layered on top. There is no separate `run.sh` or `docker-compose.yml` file that shows the attachment — see [§6](#6-agent-steps-why-this-order), the volume mount is built and run in-process.
 
-The risk — researchers accidentally copying confidential microdata into a Docker layer and pushing it publicly — is prevented by how the Dockerfile is written, not by a warning. The generated Dockerfile has no `COPY` instructions for data files. The `.dockerignore` excludes all data directories as an extra precaution. The `run.sh` / `docker-compose.yml` shows the author exactly what is being attached and from where.
+Before any `docker push`, `docker.py` prints an explicit warning naming the image tag about to be pushed.
 
-Additional checks:
-- Find secrets (tokens, API keys, `.env` files) in the project and exclude them from the attached folder.
-- Replace absolute paths (`C:\Users\name\Dropbox\...` is very common).
-- **Explicit warning before any push to a registry**, listing every layer's contents.
-
-**When data cannot be shared — options in order of preference (matching journal practice):**
-
-1. **Access instructions** — data is restricted but obtainable; the agent writes a `data-access.md` with step-by-step instructions; the container reads data via an attached folder.
-2. **Run on the author's machine** — the replicator uses the author's own computer or is given remote access; the agent documents this as the intended replication method.
-3. **Data provider certification** — the data provider certifies the results directly; the agent writes a certification-ready README section documenting the data source and analysis pipeline.
-4. **Synthetic substitute** — if none of the above is possible, the package must include a synthetic dataset that matches the structure and variable types of the real data, allows the full code pipeline to run, and produces output of the correct form (even if not the correct values). The agent offers to create this: it reads the real data structure if the real data is accessible on the author's machine and generates a synthetic version using appropriate statistical distributions. The substitute ships inside the package; the real data does not.
-
-The synthetic substitute is not a workaround — it is the accepted journal fallback and a legitimate deliverable.
+**When data cannot be shared**, journal practice recognizes a few fallbacks (access instructions, running on the author's own machine, data-provider certification, a synthetic substitute matching the real data's structure). None of these are automated today beyond one placeholder: `deliver.py` inserts a `TODO: describe access/download instructions` line in the generated README for any data file it can't resolve — the author has to fill in the actual instructions. Generating a synthetic dataset automatically does not exist anywhere in this codebase (`grep -r "synthetic" src/` returns nothing); it's a reasonable feature to want, tracked in [§11](#11-open-questions), not something this tool does.
 
 ### 7.4 Data organization and external data dependencies
 
-Most economics research projects keep code in one place and data somewhere else — Dropbox, a university network share, an HPC scratch directory, a co-author's Google Drive. The replication package as submitted rarely contains the data. The agent must resolve this before containerization makes sense.
+Most economics research projects keep code in one place and data somewhere else — Dropbox, a university network share, an HPC scratch directory. SCAN (see Tool reference) classifies every external path it finds by substring match — Dropbox/OneDrive/Google Drive/iCloud/network-share/HPC-scratch/URL — and RESOLVE rewrites it to a project-relative path, recorded as a before/after pair in `AGENT_REPORT.md`.
 
-#### Finding all data references
+**What's real vs. what isn't, beyond the rewrite itself:**
 
-The agent reads all scripts and looks for paths to files not present inside the project directory:
-
-- Absolute paths (`/Users/name/Dropbox/project/data/...`, `C:\Users\...`, `~/Dropbox/...`, `/mnt/nfs/...`)
-- Relative paths that point outside the project root (`../../shared_data/...`)
-- Paths constructed from environment variables (`$DATA_DIR`, `Sys.getenv("RAW_DATA")`)
-- URLs used to download raw data (`download.file`, `requests.get`, `urlretrieve`, Stata `copy` with http)
-
-For each external reference: record the path, which scripts use it, and whether the file currently exists at that path.
-
-#### What kind of external dependency?
-
-| Type | Examples | What the agent does |
-|------|----------|---------------------|
-| **Dropbox / personal cloud** | `~/Dropbox/JPE_paper/data/lfs_2019.dta` | Copy into package or set up attached folder; warn if confidential |
-| **University network share** | `/mnt/ifs/project/restricted/` | Cannot be bundled; must be attached folder + access instructions document |
-| **HPC scratch** | `/scratch/username/bigrun/` | Data may no longer exist; flag; ask where an archive is |
-| **Download from URL** | `download.file("https://...")` | Keep the URL; add a download step to the run script; record a checksum |
-| **Co-author's machine** | hardcoded absolute path from a different computer | Requires a data transfer; flag; propose a project-relative path instead |
-
-#### Getting everything into one place
-
-The container cannot reach a Dropbox folder. By submission time, all data needed to reproduce the paper must be in one of these situations:
-
-1. **Inside the package** (small, non-confidential data) — the agent copies it, rewrites paths to be relative to the project root, and records the change.
-2. **Downloaded at run time** (public data with a stable URL) — the agent adds a download step to the run script, records the URL and a checksum.
-3. **Attached as a folder at run time** (large or confidential data) — the agent writes attachment instructions, documents the expected folder structure and file names in the README, and writes a `data-access.md` describing where to get the data. This is the standard approach for restricted data.
-4. **Not recoverable** — data file is gone (HPC scratch purged, co-author laptop lost). The agent records this explicitly in `AGENT_REPORT.md`; it becomes an open question for the author.
-
-The agent never silently changes a path. Every path change is recorded in `AGENT_REPORT.md` with the before and after.
-
-#### Rewriting paths
-
-Once data locations are resolved, all hardcoded absolute paths in scripts must be replaced with paths relative to the project root, or with a single configurable root variable. The agent:
-
-1. Proposes a standard data folder layout (e.g., `data/raw/`, `data/processed/`, `data/restricted/`).
-2. Writes the path changes across all scripts, grouped by language (R `here::here()`, Python `pathlib`, Stata global macros, Julia `joinpath(@__DIR__, ...)`).
-3. Asks the author to confirm before changing any source files.
-
-#### Data list
-
-As a byproduct, the agent produces `data-manifest.csv` (or `.md`): every data file the project needs, its source, size, whether it is bundled or downloaded or attached, and whether it was found on disk. Journals increasingly require this.
+- SCAN detects download URLs (`download.file`, `requests.get`, `urlretrieve`, …) and lists them in `AGENT_REPORT.md` under "External downloads detected." It does **not** add a download step to any script — the URL is recorded, not acted on.
+- `resolve.py`'s path-adoption step rewrites to idiomatic helpers for four languages: R (`here::here()`), Python (`pathlib`), Julia (`@__DIR__`), MATLAB (`fullfile()`). There is no equivalent Stata adoption — Stata paths get the same literal quoted-string rewrite everything else gets, not a global-macro restructuring.
+- `data-manifest.csv` is real — written by `resolve.py` into `data/data-manifest.csv`, listing every data file found, its kind, and whether it was resolved.
+- A missing data file (HPC scratch purged, a path that resolves to nothing) is surfaced as a gap, not auto-flagged into a specific "unrecoverable" document — see **ASK** in the Tool reference for which gap kinds actually block.
 
 ---
 
 ### 7.5 The LaTeX source as the starting point for tracing outputs
 
-The paper's `.tex` source is the only file that authoritatively lists every exhibit the paper actually uses. The agent requires it — or asks for it early if not found in the project directory.
+GRAPH's exact matching mechanism (exact/basename/copy-rename tiers) is documented under **GRAPH** in the [Tool reference](#tool-reference); this is just the motivation and the one additional piece of real behavior not covered there: inline-exhibit detection.
 
-#### Step 1: extract all exhibit references from .tex
+Before matching file references, `graph.py` scans the `.tex` source for content embedded directly in the manuscript rather than pointed to by an external file — the worst reproducibility failure, since the number or figure then has no script behind it at all. Two patterns are actually implemented, both non-blocking:
 
-Read the LaTeX source for every included external file:
+| Pattern | Implemented? |
+|---------|--------------|
+| `tabular`/`table` content with no `\input{}` | Yes — `_find_inline_tables` |
+| Regression-coefficient-shaped numbers (`0.047***`, `(0.012)`) in body text, outside any `\input{}` | Yes — `_find_inline_statistics` |
+| Hardcoded `tikzpicture` coordinates | **No** — not implemented, despite being a reasonable thing to flag |
 
-- Figures: `\includegraphics[...]{path}`, `\input{path}` of a `.pgf`/`.tikz`, `\includesvg{path}`
-- Tables: `\input{path}` of a `.tex` fragment, `\include{path}`
-- Other: `\lstinputlisting{path}`, `\verbatiminput{path}`
+For the three classification outcomes that matter when a file-referenced exhibit doesn't trace cleanly (exists with no writer, exists at the wrong path, doesn't exist at all), see GRAPH's tiers and the blocking gap kinds listed under **ASK** in the Tool reference — all three raise a gap today, not a conversational back-and-forth. There is no `.Rhistory`/shell-history recovery step for finding an untraced exhibit's real source; `.Rhistory` is read only once, elsewhere, for a timestamp (CAPTURE's version-reconstruction fallback, [§5.2](#52-how-software-versions-are-reconstructed-best-to-worst)).
 
-Resolve each path relative to the `.tex` root. This produces the **exhibit list** — the complete, authoritative list of what must be generated.
-
-#### Step 2: scan for exhibits embedded directly in the .tex
-
-Before looking at file references, the agent reads the `.tex` source for environments that contain exhibit content directly rather than pointing to an external file. These are the worst reproducibility failures: the numbers or figure exist only inside the manuscript, with no script that produced them.
-
-Patterns to flag:
-
-| LaTeX pattern | What it likely means |
-|---------------|---------------------|
-| `\begin{table}` / `\begin{table*}` containing a `tabular` with numbers, **no `\input{}`** | Table typed or pasted in by hand |
-| `\begin{tabular}` at the top level, outside any `\input{}` | Same |
-| `\begin{figure}` containing `\begin{tikzpicture}` with hardcoded coordinates or values | Figure drawn by hand, possibly copied from output |
-| `\begin{figure}` with no `\includegraphics` inside | Figure environment with only inline markup |
-| Numbers in the body text matching patterns like regression coefficients (e.g., `0.047***`, `(0.012)`) outside any `\input{}` | Statistics copied and pasted from output |
-
-For each flagged instance, the agent reports the location (file and line range), shows the relevant snippet, and asks a focused question:
-
-> "Table 3 (lines 412–441 of `paper.tex`) appears to be typed directly into the LaTeX source. I couldn't find a script that produces this table. Was this generated by code and then pasted in manually, or written by hand? If it came from code, can you point me to the script?"
-
-The answer leads to the same resolution as a figure with no source script: trace back to a script, propose replacing the inline table with `\input{tables/tab3.tex}`, or mark as unrecoverable and document. Numbers in the body text that cannot be traced to code are flagged as a particular risk — they cannot be checked by any automated replication process and must be listed explicitly in `AGENT_REPORT.md` under **"Exhibits not traceable to code."**
-
-#### Step 3: classify each file-referenced exhibit
-
-For each file reference in the exhibit list (`\includegraphics` / `\input`):
-
-| Situation | What the agent does |
-|-----------|-------------------|
-| File exists on disk **and** a script writes it to that exact path | Good. Add to the graph. |
-| File exists on disk but **no script writes it** (copied in by hand) | Flag it. Ask the author how it was produced. See below. |
-| File exists on disk but script writes it to a **different path** (then it was moved) | Find the move; flag as bad practice; propose a fix. |
-| File **does not exist** on disk at all | Serious gap. The paper references something that isn't there. |
-
-#### Step 4: handle exhibits that were copied in manually
-
-This is common: the author ran some code, a figure appeared, they moved it into a `submission/` folder. The script exists but writes to `~/Desktop/fig3b.pdf` or nowhere at all (displayed in RStudio, screenshot taken).
-
-The agent does not accept this silently. It finds the most likely source script (by last-modified time, by matching the exhibit name against script names and content, by checking `.Rhistory`/shell history for recent `ggsave`/`savefig`/`graph export` calls) and then:
-
-1. **Explains the situation** — concretely, not as a criticism: "Fig 3b exists in `figures/fig3b.pdf` but no script writes to that path. I think it came from `analysis/fig3.R` line 47 (`ggsave("fig3b.pdf")`), which writes to the working directory instead."
-
-2. **Proposes a fix** — a specific code change: replace the output path in the script with the path where LaTeX expects to find the file.
-
-3. **Asks for confirmation** before changing any source files.
-
-4. If no source script can be found: asks the author directly ("I couldn't find the script that produced this figure. Can you point me to it?") rather than accepting the situation.
-
-#### What good looks like: scripts write, LaTeX reads
-
-The goal is a project where:
-
-```
-script → writes → figures/fig3b.pdf
-paper.tex → \includegraphics{figures/fig3b.pdf}
-```
-
-...and those two paths are identical, so running the code regenerates exactly what the paper uses, with no manual copying in between. The agent pushes every project toward this as part of the initial diagnostic work — not as a style preference but because it is what makes the validation step meaningful. If the container runs the master script and produces `figures/fig3b.pdf`, and `paper.tex` references `figures/fig3b.pdf`, then the replication check can be automated. If there is a manual copy step in between, it cannot.
-
-Where a project cannot be changed (for example, the author will not touch legacy code), the agent records the manual step explicitly in `AGENT_REPORT.md` and the README rather than leaving it as unwritten knowledge.
+**The goal this pushes projects toward**: a script writes `figures/fig3b.pdf`, `paper.tex` includes `figures/fig3b.pdf`, and those two paths are identical — no manual copy step in between. That's what makes VALIDATE meaningful (it can only check existence at a path, not reconstruct a manual step). This is a design goal reflected in how GRAPH's gaps get raised, not a separate enforcement mechanism.
 
 ---
 
@@ -552,21 +460,13 @@ Note: intermediate files and the scripts that produce them are needed even if th
 
 #### Show before removing
 
-The agent never removes files silently. It shows candidates grouped by type and apparent topic — not as a flat list of hundreds of files — and explains what it found in plain language:
+Nothing is deleted on first encounter. `clean.py` writes `CLEANUP.md`, grouped into Orphan Scripts / Orphan Data / Orphan Outputs sections, one entry per candidate with its size and a blank `> Action:` line defaulting to `keep`. The author edits those lines (`delete`, `archive`, or `keep`) and re-runs; a second pass parses the choices and applies them.
 
-> "I found 23 files that aren't needed to reproduce any figure or table in your paper. These look like they're from earlier stages of the project — things like old cleaning scripts, a dataset that doesn't appear to be used, and figures that aren't in the current draft. I'll show them to you in groups. For each group you can choose: delete it, keep it (and tell me why, so I can document it), or move it to an archive folder."
+#### Three choices per candidate
 
-The tone is collaborative. "Looks like an earlier version" not "this is dead code." The author spent years on this material.
-
-#### Three choices per group
-
-For each group of candidates the author chooses:
-
-1. **Delete** — removed from the working copy. Recorded in `AGENT_REPORT.md`. The original is still in the pre-copy source.
-2. **Keep** — the agent asks for a one-line reason ("referee might ask for it", "needed for companion paper") and records it in `AGENT_REPORT.md`. The file stays but is documented as intentionally kept despite not being needed.
-3. **Archive** — the agent moves the group to an `archive/` subfolder in the working copy. Not included in the Docker image, not in the submission package, but not deleted. A middle option for researchers who are not ready to delete work they spent months on.
-
-The archive option matters. Forcing a binary keep/delete choice causes most researchers to keep everything by default. The archive folder lets them say "not part of the package" without saying "gone forever."
+1. **Delete** — removed from the working copy, recorded in `AGENT_REPORT.md`.
+2. **Keep** — stays, recorded as an explicit choice rather than an accidental default.
+3. **Archive** — moved to an `archive/` subfolder in the working copy — not deleted, not included in the Docker image or submission package.
 
 #### Why this matters for the container
 
@@ -576,11 +476,11 @@ A replication package with unneeded files is harder to check, larger to distribu
 
 ### 7.7 Apple Silicon and platform compatibility
 
-Many researchers use M-series Macs; Stata, MATLAB, and several base images used for reproducibility only run on x86 (amd64) processors. Default to `--platform linux/amd64` where proprietary software requires it, and explain the speed cost of emulation — do not produce an arm64 image that mysteriously fails to install Stata.
+Many researchers use M-series Macs; Stata and MATLAB images only run on x86 (amd64). `docker.py` forces `--platform linux/amd64` for Stata/MATLAB specifically — not as a blanket default. For R/Python/Julia it passes no `--platform` flag at all and lets Docker use the host's native architecture, since those images generally do have working arm64 builds.
 
 ### 7.8 What the author sees: automation with a clear record
 
-Pure automation gets adoption but leaves the researcher unable to explain or change the output when a reviewer asks. The goal is **automation with a clear record**: the agent does the work but produces a human-readable Dockerfile, a run script or compose file, and a short computational requirements README (roughly AEA format), plus a plain-language explanation of every decision. The output is itself a reproducibility deliverable, not a black box.
+Pure automation gets adoption but leaves the researcher unable to explain or change the output when a reviewer asks. The goal is **automation with a clear record**: a human-readable Dockerfile and a computational-requirements README (see [§9](#9-output-files) for exactly what's generated — no separate run script today, see [§11](#11-open-questions)), plus `AGENT_REPORT.md`'s plain-language log of what changed and why. The output is itself a reproducibility deliverable, not a black box.
 
 ---
 
@@ -597,22 +497,18 @@ Pure automation gets adoption but leaves the researcher unable to explain or cha
 
 ## 9. Output files
 
-The agent produces two things: a **replication package** (the main output, works on its own without Docker) and a **Docker setup** (the software environment wrapper added on top).
-
 ### Replication package
-- Cleaned, self-contained project directory with paths relative to the project root throughout
-- `README` — computational requirements in AEA Data Editor format, including:
-  - Operating system, software, exact versions
-  - **Output table**: every exhibit in the paper mapped to its output file path and the script that produces it — written automatically from the dependency graph
-  - **Total runtime** — wall-clock time measured during the native validation run, written in automatically
-  - Instructions for running without Docker
-- `data-manifest.csv` — every data file the project needs: source, size, status (included / downloaded / attached folder / restricted)
-- `AGENT_REPORT.md` — what was read from the live environment, what was inferred, which versions were locked, which paths were changed, which files were deleted or archived, **and what could not be recovered**
+- The working copy itself, with RESOLVE's path rewrites already applied
+- `README` — AEA-style computational requirements section, including the master script and a table mapping every traced exhibit to the script that produces it (`deliver.py`'s "Output Scripts" table, built from the dependency graph)
+- `data/data-manifest.csv` — every data file RESOLVE found, its kind, and whether it resolved to a project-relative path (written by `resolve.py`, not `deliver.py`)
+- `AGENT_REPORT.md` — append-only log of path rewrites, fix-loop actions, and Docker fix-loop actions, started by `resolve.py` and appended to by `fix_loop.py` and `docker.py`
+- `DELIVERY_REPORT.md`, and a `.zip` of the working copy — both written by `deliver.py`
 
 ### Docker setup
-- `Dockerfile` — software environment only (operating system + runtime + packages); no data; no `COPY` of data files; written to be human-readable with comments
-- `docker-compose.yml` or `run.sh` — attaches the replication package folder as a volume; makes the attachment point clear and explicit
-- `.dockerignore` — excludes data directories, secrets, and build files
+- `Dockerfile` — software environment only (OS + runtime + packages); no `COPY` of data files
+- `.dockerignore` — excludes data directories and the secrets SCAN found
+
+**Not generated**: a `docker-compose.yml` or `run.sh`. The volume mount, license bind-mount, and `--platform` flag are built as a `docker run` argument list and executed in-process by `docker.py` — there's no standalone script a replicator can read to see the equivalent command. Making that command visible as a real file is a reasonable thing to want; see [§11](#11-open-questions).
 
 ---
 
@@ -622,13 +518,19 @@ The agent produces two things: a **replication package** (the main output, works
 
 **The architecture in one sentence:** the agent produces a replication package that runs natively, then adds a Docker image that freezes the software environment — data always lives in the package, never in the image.
 
-**How to know it worked:** the master script, run from scratch (outputs deleted first) both natively and inside the container with the package folder attached, reproduces every exhibit in the paper. Native run passes + container run passes = done. Native run fails = the package is broken; Docker cannot fix it.
+**How to know it worked:** the master script, run both natively and inside the container with the package folder attached, produces every exhibit the paper uses — checked by existence, not content (see **VALIDATE** in the Tool reference; neither run deletes stale outputs first today). Native run passes + container run passes = done. Native run fails = the package is broken; Docker cannot fix it.
 
 ---
 
 ## 11. Open questions
 
+Gaps identified while auditing this README against the actual implementation — real missing features, not yet built, listed here instead of described as current behavior elsewhere in this document:
+
+- **FIDELITY is now wired** (`reference_exhibit_dirs` at intake → `fidelity_check.py` → `check_exhibit_fidelity()`, see Tool reference) using a preserved exhibit snapshot as the reference, matched by basename, with collisions surfaced rather than silently resolved. Two things deliberately not done as part of that: (1) using the accepted compiled PDF itself as a fallback reference — would need page extraction and a visual/text diff, a different and harder mechanism than the byte compare this is built on; (2) threading `reference_exhibit_dirs` into CLEAN's reachable-set, so a reference directory living inside the working copy doesn't get listed as orphaned in `CLEANUP.md` (see FIDELITY's "known limitation" in the Tool reference) — a natural follow-up, not done here.
+- **Restricted data: hard-abort only.** Today a restricted-data signal stops the pipeline before any copy is made — see [§4](#4-confidentiality-and-restricted-data). A graduated mode (read structure, not content; filter logs; generate a synthetic substitute automatically) would let authors with restricted data use more of this tool, but none of that exists today and would need real design, not just a transmission-rules table.
+- **No disk-space check before copying**, and no git-based undo inside the working copy — see [§5.1](#51-safety-working-copy-first-always). A copy that fails partway through a too-large project isn't currently detected in advance.
+- **VALIDATE doesn't delete stale outputs first.** A leftover file from a previous run can read as "present" even if the current run never touched it.
+- **No materialized `docker run` equivalent.** The volume mount / license bind-mount / platform flag are built and executed in-process by `docker.py`; there's no `run.sh`/`docker-compose.yml` a replicator can read without running `deadreckoning` itself.
 - How aggressively to fix versions automatically vs. show the choices to the author?
 - Caching strategy for repeated builds during the fix loop (build times with x86 emulation and Stata are slow).
-- How to check that outputs are *correct*, not just that the run completed without error?
 - Where does the image go after it is built — out of scope for v1, but the question will come up.

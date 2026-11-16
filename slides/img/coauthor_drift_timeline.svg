@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="730" height="697.0" viewBox="0 0 730 697.0">
+<rect x="0" y="0" width="730" height="697.0" fill="white"/>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#222222"/></marker>
+<marker id="arrow-merge-a1" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2b4c7e"/></marker>
+<marker id="arrow-merge-a2" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b3fa0"/></marker>
+</defs>
+<text x="282.5" y="22" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#2b4c7e">Author 1</text>
+<rect x="150" y="30" width="265" height="3" rx="1.5" fill="#2b4c7e"/>
+<text x="567.5" y="22" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#6b3fa0">Author 2</text>
+<rect x="435" y="30" width="265" height="3" rx="1.5" fill="#6b3fa0"/>
+<line x1="95" y1="68" x2="95" y2="653" stroke="#222222" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="88.0" y1="80" x2="102.0" y2="80" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="84" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2024-01-08</text>
+<line x1="95" y1="80" x2="150" y2="80" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="150" y="55.0" width="265" height="50" rx="6" fill="#eaf1fb" stroke="#2b4c7e" stroke-width="1.5"/>
+<rect x="150" y="55.0" width="6" height="50" fill="#2b4c7e"/>
+<text x="166" y="77.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#111111">clean.R run</text>
+<text x="166" y="93.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">-> panel.csv</text>
+<line x1="88.0" y1="164" x2="102.0" y2="164" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="168" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2024-01-10</text>
+<line x1="95" y1="164" x2="435" y2="164" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="435" y="139.0" width="265" height="50" rx="6" fill="#f3ecfa" stroke="#6b3fa0" stroke-width="1.5"/>
+<rect x="435" y="139.0" width="6" height="50" fill="#6b3fa0"/>
+<text x="451" y="161.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#111111">export.do run (Stata 12)</text>
+<text x="451" y="177.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">-> input_data_from_2.csv (v1)</text>
+<line x1="88.0" y1="256" x2="102.0" y2="256" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="260" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2024-01-12</text>
+<line x1="95" y1="256" x2="150" y2="256" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="150" y="223.0" width="265" height="66" rx="6" fill="#eaf1fb" stroke="#2b4c7e" stroke-width="1.5"/>
+<rect x="150" y="223.0" width="6" height="66" fill="#2b4c7e"/>
+<text x="166" y="245.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#111111">combine.jl run #1</text>
+<text x="166" y="261.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">(reads panel.csv + csv v1)</text>
+<text x="166" y="277.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">-> Table 3 (v1 numbers)</text>
+<line x1="88.0" y1="372" x2="102.0" y2="372" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="376" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2024-03-05</text>
+<line x1="95" y1="372" x2="435" y2="372" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="435" y="323.0" width="265" height="98" rx="6" fill="#7a2e2e" stroke="#7a2e2e" stroke-width="1.5"/>
+<rect x="435" y="323.0" width="6" height="98" fill="#6b3fa0"/>
+<text x="451" y="345.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">Upgrades Stata 12 -> 18,</text>
+<text x="451" y="361.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">reruns export.do</text>
+<text x="451" y="377.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">csv overwritten with v2 (full</text>
+<text x="451" y="393.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">precision)</text>
+<text x="451" y="409.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">combine.jl NOT rerun</text>
+<line x1="82" y1="425" x2="94" y2="409" stroke="#222222" stroke-width="2.5"/>
+<line x1="92" y1="425" x2="104" y2="409" stroke="#222222" stroke-width="2.5"/>
+<text x="119" y="422" font-family="Helvetica, Arial, sans-serif" font-size="13" font-style="italic" fill="#7a2e2e">~1.5 years, forgotten</text>
+<line x1="88.0" y1="462" x2="102.0" y2="462" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="466" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2025-05-20</text>
+<line x1="95" y1="462" x2="150" y2="462" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="150" y="437.0" width="550" height="50" rx="6" fill="#f0f0f0" stroke="#555555" stroke-width="1.5"/>
+<rect x="150" y="437.0" width="6" height="25.0" fill="#2b4c7e"/>
+<rect x="150" y="462.0" width="6" height="25.0" fill="#6b3fa0"/>
+<text x="166" y="459.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#111111">"Final" PDF generated, sent to journal</text>
+<text x="166" y="475.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">(still v1 Table 3)</text>
+<line x1="88.0" y1="528" x2="102.0" y2="528" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="532" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2025-06-01</text>
+<line x1="95" y1="528" x2="150" y2="528" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="150" y="503.0" width="550" height="50" rx="6" fill="#f0f0f0" stroke="#555555" stroke-width="1.5"/>
+<rect x="150" y="503.0" width="6" height="25.0" fill="#2b4c7e"/>
+<rect x="150" y="528.0" width="6" height="25.0" fill="#6b3fa0"/>
+<text x="166" y="525.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#111111">Paper accepted</text>
+<text x="166" y="541.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111">(still carries v1 numbers)</text>
+<line x1="88.0" y1="618" x2="102.0" y2="618" stroke="#222222" stroke-width="2.5"/>
+<text x="81" y="622" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#222222">2026 (today)</text>
+<line x1="95" y1="618" x2="150" y2="618" stroke="#222222" stroke-width="1.5" stroke-dasharray="3,3"/>
+<rect x="150" y="569.0" width="265" height="98" rx="6" fill="#7a2e2e" stroke="#7a2e2e" stroke-width="1.5"/>
+<rect x="150" y="569.0" width="6" height="98" fill="#2b4c7e"/>
+<text x="166" y="591.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#ffffff">Author 1 reruns the pipeline:</text>
+<text x="166" y="607.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">combine.jl reads panel.csv +</text>
+<text x="166" y="623.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">csv (v2)</text>
+<text x="166" y="639.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">Table 3 regenerated -- no</text>
+<text x="166" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#ffffff">longer matches the PDF</text>
+<path d="M 415 80 L 425.0 80 L 425.0 250 L 415 250" fill="none" stroke="#2b4c7e" stroke-width="1.75" stroke-dasharray="4,3" marker-end="url(#arrow-merge-a1)"/>
+<path d="M 435 164 L 425.0 164 L 425.0 262 L 415 262" fill="none" stroke="#6b3fa0" stroke-width="1.75" stroke-dasharray="4,3" marker-end="url(#arrow-merge-a2)"/>
+</svg>

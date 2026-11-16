@@ -15,16 +15,21 @@ from pathlib import Path
 from .ask import run_ask_step
 from .capture import capture_env
 from .clean import run_clean_step
+from .compile_check import check_compiled_language_build
 from .confidentiality import check_restricted
 from .deliver import run_deliver_step
 from .docker import BuildResult, ContainerRunResult, DockerFixResult, build_image, generate_dockerfile, run_docker_fix_loop, run_in_container
+from .fidelity_check import FidelityCheckResult, run_fidelity_check_step
 from .fix_loop import FixLoopResult, append_fix_report, run_fix_loop, run_llm_fix_loop
 from .graph import build_graph
 from .models import AuthorQA, CleanResult, DeliverResult, DependencyGraph, EnvSpec, GapKind, IntakeResult, PackageSpec, PinMethod, RestrictedStatus
 from .provenance import render_data_exhibit_map, trace_exhibit_inputs, write_data_exhibit_map
+from .mixed_language_check import MixedLanguageCheckResult, run_mixed_language_check_step
 from .resolve import ResolveResult, resolve_paths
+from .rng_check import RngCheckResult, run_rng_check_step
 from .runner import RunResult, ValidationResult, run_natively, validate_outputs
 from .scan import ScanResult, scan_scripts
+from .sort_check import SortCheckResult, run_sort_check_step
 
 
 @dataclass
@@ -41,6 +46,10 @@ class PipelineResult:
     ask: AuthorQA | None = None
     needs_author_input: bool = False
     clean: CleanResult | None = None
+    rng_check: RngCheckResult | None = None
+    mixed_language_check: MixedLanguageCheckResult | None = None
+    sort_check: SortCheckResult | None = None
+    fidelity_check: FidelityCheckResult | None = None
     deliver: DeliverResult | None = None
     fix_loop: FixLoopResult | None = None
     llm_fix_loop: FixLoopResult | None = None
@@ -147,13 +156,30 @@ def run_pipeline(
     # check_restricted reads filenames only, no file contents opened.
     restricted = check_restricted(project_root)
     if restricted.is_restricted:
-        # Return a minimal result with no working copy created
-        return PipelineResult(
-            project_root=project_root,
-            working_copy=project_root,  # sentinel — no copy was made
-            restricted=restricted,
-            intake=intake,
-            error=f"Restricted data detected: {restricted.reason}",
+        # §4.2 — a filename match (census, psid, nda, ...) is a lead, not
+        # proof: legitimate public-use extracts are named this way too.
+        # Only abort if that's still the live verdict — either no re-ask
+        # has happened yet (restricted_override_safe is None, the fail-safe
+        # default), or the author was re-asked and confirmed it really is
+        # restricted. If the author was re-asked and confirmed this
+        # specific hit is NOT restricted data, proceed normally instead
+        # of silently flipping into restricted mode.
+        if intake is None or not intake.restricted_override_safe:
+            return PipelineResult(
+                project_root=project_root,
+                working_copy=project_root,  # sentinel — no copy was made
+                restricted=restricted,
+                intake=intake,
+                error=f"Restricted data detected: {restricted.reason}",
+            )
+        # Overridden: author re-confirmed this specific hit is a false
+        # positive. Record that in the audit trail, but report DETECT as
+        # cleared, not restricted — the pipeline is proceeding normally.
+        restricted = RestrictedStatus(
+            is_restricted=False,
+            reason=f"Filename heuristic hit ({restricted.reason}) — "
+                   f"author confirmed false positive, see §4.2",
+            trigger_path=restricted.trigger_path,
         )
 
     # Always work on a copy — original is never touched
@@ -176,6 +202,14 @@ def run_pipeline(
 
     # Step 2: graph
     result.graph = build_graph(working_copy)
+
+    # Step 2a: compiled-language (Fortran/C/C++) build-step detection — a
+    # blocking gap if such source exists with no build script anywhere
+    # (see compile_check.py / Action Point 4 in compare.md). Appended into
+    # graph.gaps so ASK picks it up via the existing blocking-gap machinery.
+    compile_gap = check_compiled_language_build(working_copy)
+    if compile_gap is not None:
+        result.graph.gaps.append(compile_gap)
 
     # Step 2b: trace exhibit <- data-input provenance; write DATA-EXHIBIT-MAP.md
     result.provenance = trace_exhibit_inputs(result.graph)
@@ -235,7 +269,10 @@ def run_pipeline(
         return result
 
     # Step 7+8: native run + validate
-    result.native_run = run_natively(working_copy, master_script=master_script)
+    result.native_run = run_natively(
+        working_copy, master_script=master_script,
+        compile_command=result.env_spec.compile_command if result.env_spec else None,
+    )
     if not result.native_run.success:
         # Step 7b: LLM fix loop — re-run with Claude-proposed fixes
         llm_result, result.graph = run_llm_fix_loop(
@@ -252,7 +289,10 @@ def run_pipeline(
             return result
 
         # Re-run after LLM fixes
-        result.native_run = run_natively(working_copy, master_script=master_script)
+        result.native_run = run_natively(
+        working_copy, master_script=master_script,
+        compile_command=result.env_spec.compile_command if result.env_spec else None,
+    )
         if not result.native_run.success:
             result.error = f"Native run failed (rc={result.native_run.returncode})"
             return result
@@ -267,6 +307,25 @@ def run_pipeline(
 
     # CLEAN: identify unreachable files; write CLEANUP.md (non-blocking)
     result.clean, _needs_review = run_clean_step(working_copy, result.graph)
+
+    # RNG-CHECK: flag stochastic calls with no seed upstream; write
+    # RNG-WARNINGS.md (non-blocking) — see Action Point 2 in compare.md
+    result.rng_check = run_rng_check_step(working_copy, result.graph)
+
+    # MIXED-LANGUAGE-CHECK: flag Rcpp/Cython/MEX with no declared build
+    # step for the compiled part; write MIXED-LANGUAGE-WARNINGS.md
+    # (non-blocking)
+    result.mixed_language_check = run_mixed_language_check_step(working_copy)
+
+    # SORT-CHECK: flag a Stata sort/gsort with no , stable and no
+    # set sortseed feeding a tie-sensitive by ... : ... _n==1/_n==_N
+    # operation; write SORT-WARNINGS.md (non-blocking)
+    result.sort_check = run_sort_check_step(working_copy)
+
+    # FIDELITY: compare regenerated exhibits against author-supplied
+    # reference directories, if any were given at intake; write
+    # FIDELITY-REPORT.md (non-blocking). See README §11.
+    result.fidelity_check = run_fidelity_check_step(working_copy, result.intake)
 
     if skip_docker:
         return result
@@ -299,6 +358,7 @@ def run_pipeline(
         resolve=result.resolve,
         native_ok=result.native_ok,
         container_ok=result.container_ok,
+        fidelity_check=result.fidelity_check,
     )
 
     return result

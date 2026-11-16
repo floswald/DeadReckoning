@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 from typing import Optional
 
@@ -76,6 +77,18 @@ _QUESTIONS: list[dict] = [
             "or press Enter if data is inside the project): "
         ),
         "kind": "str_optional",
+    },
+    {
+        "key": "reference_exhibit_dirs",
+        "prompt": (
+            "Where are your output files stored -- i.e. where are the figures and "
+            "tables that appear in your conditionally accepted paper PDF, on your "
+            "computer right now? Please give the absolute path to the relevant "
+            "directory, or several separated by commas if they're not all in one "
+            "place. Press Enter if you don't have these preserved separately from "
+            "your working project: "
+        ),
+        "kind": "path_list_optional",
     },
     {
         "key": "last_run_date",
@@ -152,6 +165,15 @@ def _parse_list(raw: str) -> list[str]:
     return [token.strip() for token in raw.replace(",", " ").replace("/", " ").split() if token.strip()]
 
 
+def _parse_path_list(raw: str) -> list[str]:
+    """Like _parse_list, but for path-shaped answers: splits only on commas
+    and newlines, never on '/' or plain whitespace, since a path legitimately
+    contains both (an absolute path, or a directory name with a space in it)."""
+    if not raw.strip():
+        return []
+    return [token.strip() for token in re.split(r"[,\n]", raw) if token.strip()]
+
+
 # ---------------------------------------------------------------------------
 # Main questionnaire function
 # ---------------------------------------------------------------------------
@@ -202,6 +224,8 @@ def questionnaire(
             raw[key] = _parse_bool(raw_value)
         elif kind == "list_optional":
             raw[key] = _parse_list(raw_value)
+        elif kind == "path_list_optional":
+            raw[key] = _parse_path_list(raw_value)
         else:
             raw[key] = raw_value if raw_value else None
 
@@ -210,6 +234,7 @@ def questionnaire(
         code_root=raw.get("code_root"),
         master_script=raw.get("master_script"),
         data_root=raw.get("data_root"),
+        reference_exhibit_dirs=raw.get("reference_exhibit_dirs") or [],
         last_run_date=raw.get("last_run_date"),
         languages_claimed=raw.get("languages_claimed") or [],
         has_stata_license=raw.get("has_stata_license"),

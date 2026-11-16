@@ -47,7 +47,12 @@ def banner(title: str) -> None:
     print("=" * 72)
 
 
+_PAUSE = False  # set from --pause in main(); step() waits for Enter when True
+
+
 def step(name: str, explanation: str) -> None:
+    if _PAUSE:
+        input("\n[press Enter for the next step] ")
     print(f"\n--- {name} " + "-" * max(0, 68 - len(name)))
     print(f"    {explanation}")
 
@@ -248,5 +253,8 @@ if __name__ == "__main__":
                          help="One-line-per-step output instead of full step-by-step narration")
     parser.add_argument("--skip-docker", action="store_true",
                          help="Stop after the native run; don't build/run the Docker image")
+    parser.add_argument("--pause", action="store_true",
+                         help="Wait for Enter before each pipeline step — for presenting live")
     args = parser.parse_args()
+    _PAUSE = args.pause
     main(terse=args.terse, skip_docker=args.skip_docker)

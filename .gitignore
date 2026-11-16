@@ -19,3 +19,9 @@ tests/real_world/**
 !tests/real_world/
 !tests/real_world/*/
 !tests/real_world/*/oracle.py
+
+# Quarto slides build output + recorded asciinema casts (large, regenerable)
+slides/_site/
+slides/.quarto/
+slides/offline-assets/casts/*.cast
+slides/offline-assets/casts/*.js

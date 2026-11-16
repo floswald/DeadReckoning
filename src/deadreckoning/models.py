@@ -31,6 +31,24 @@ class GapKind(str, Enum):
     inline_statistic = "inline_statistic"
     exhibit_missing_from_disk = "exhibit_missing_from_disk"
     script_writes_wrong_path = "script_writes_wrong_path"
+    # A copy/rename edge (cp, file.rename, a `register`-style pair list, ...)
+    # points at this exhibit, but the chain dead-ends — no write call produces
+    # its source file either. Strictly more informative than
+    # exhibit_no_source_script: we know ONE hop of provenance, just not the
+    # root. Kept distinct so a report can show "found a lead" vs "nothing at all".
+    exhibit_copied_but_no_source_script = "exhibit_copied_but_no_source_script"
+    # A script reads an in-package (relative, non-external) data path that
+    # does not exist on disk and that no script's write call produces either
+    # — a genuinely missing input, not a restricted/external file (those are
+    # surfaced separately by SCAN's external-path check). `exhibit` holds the
+    # missing data path, reusing the same field other path-shaped gaps use.
+    input_missing_from_disk = "input_missing_from_disk"
+    # Fortran/C/C++ source is present but no Makefile/CMakeLists.txt/build
+    # script, and no shell/batch script invoking a compiler, was found
+    # anywhere in the project — DeadReckoning cannot guess the compile
+    # command (the author may only have it in shell history). Blocking —
+    # see compile_check.py / Action Point 4 in compare.md.
+    compiled_language_no_build_script = "compiled_language_no_build_script"
 
 
 class Gap(BaseModel):
@@ -49,11 +67,31 @@ class ScriptWritesExhibit(BaseModel):
     written_path: Path     # path the script actually writes to
 
 
+class ScriptCopiesFile(BaseModel):
+    """A copy/rename edge: `dst_path` is a copy or rename of `src_path`, found
+    literally in a script (cp/mv/file.rename/file.copy/shutil.copy/copyfile/
+    movefile/Stata `copy`, or a `src => dst`-style registration-table pair).
+    Distinct from ScriptWritesExhibit: this isn't where content was produced,
+    just where it was relocated/relabeled under a different name."""
+    script: Path
+    copy_call: str          # e.g. "cp", "file.rename", "=>" (register-table pair)
+    line: int
+    src_path: Path
+    dst_path: Path
+
+
 class Exhibit(BaseModel):
     tex_path: Path                        # path as referenced in .tex (may be relative)
     exists_on_disk: bool
     source: Optional[ScriptWritesExhibit] = None   # None → gap
     path_mismatch: bool = False           # script writes elsewhere, file was moved
+    # Set when this exhibit's provenance runs through a copy/rename edge
+    # rather than (or in addition to, for the final hop) a direct write call.
+    # `source`, if also set, is the write call that produced the copy's
+    # ORIGINAL (pre-rename) file — i.e. the full chain is: source writes
+    # copied_via.src_path, which copied_via then copies/renames to
+    # copied_via.dst_path (== this exhibit).
+    copied_via: Optional[ScriptCopiesFile] = None
 
 
 class DataFile(BaseModel):
@@ -81,6 +119,7 @@ class DependencyGraph(BaseModel):
     orphan_files: list[OrphanFile] = Field(default_factory=list)
     script_order: list[Path] = Field(default_factory=list)  # topological order if resolvable
     script_writes: list[ScriptWritesExhibit] = Field(default_factory=list)  # every write call found, not just exhibit sources
+    script_copies: list[ScriptCopiesFile] = Field(default_factory=list)  # every copy/rename edge found, not just exhibit sources
 
     @property
     def is_complete(self) -> bool:
@@ -134,6 +173,9 @@ class EnvSpec(BaseModel):
     stata_image: Optional[str] = None     # pre-built private Stata base image tag
                                            # (e.g. "dataeditors/stata18_5-mp:2025-02-26")
                                            # — cannot be inferred from disk; author-supplied
+    compile_command: Optional[str] = None  # Fortran/C/C++: exact compile (+ run) command
+                                            # — cannot be inferred when no build script
+                                            # exists; author-supplied, see compile_check.py
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +243,11 @@ class IntakeResult(BaseModel):
     code_root: Optional[str] = None             # §3 item 2
     data_root: Optional[str] = None             # §3 item 2
     master_script: Optional[str] = None         # entry point that runs the full analysis
+    # Directory/directories (one or more) holding the output exhibits as they
+    # stood when the paper was accepted — the reference FIDELITY compares
+    # regenerated exhibits against. Empty if the author has nothing preserved
+    # separately from the working project; FIDELITY then simply doesn't run.
+    reference_exhibit_dirs: list[str] = Field(default_factory=list)
     last_run_date: Optional[str] = None         # §3 item 5 — free text, e.g. "March 2023"
     languages_claimed: list[str] = Field(default_factory=list)   # §3 item 6
     has_stata_license: Optional[bool] = None    # §3 item 6
@@ -208,6 +255,15 @@ class IntakeResult(BaseModel):
     restricted_data: Optional[bool] = None      # §4.1 — asked before any file opened
     runtime_estimate: Optional[str] = None      # §3 item 8 — "minutes/hours/days"
     target_journal: Optional[str] = None        # §3 item 9
+
+    # §4.2 — set only when a filename-heuristic hit (e.g. "census", "psid")
+    # was re-confirmed with the author as a false positive. A filename
+    # match alone is never enough to flip into restricted mode on its
+    # own — legitimate public-use extracts are named this way too — so
+    # this field records the author's answer to that follow-up question.
+    # True  = author confirmed this specific match is NOT restricted data.
+    # None  = no re-ask has happened yet (default; fails safe to restricted).
+    restricted_override_safe: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------

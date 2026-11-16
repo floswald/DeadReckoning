@@ -37,6 +37,40 @@ _FAIL = _red("✗")
 _WARN = _yellow("!")
 
 
+def _parse_restricted_override(raw: str | None) -> bool | None:
+    """--restricted-override {yes,no} -> bool, for non-interactive re-ask (§4.2)."""
+    if raw is None:
+        return None
+    return raw.strip().lower() in ("y", "yes", "true", "1")
+
+
+def _gate_restricted(project: Path, args: argparse.Namespace):
+    """
+    §4.2 — returns the RestrictedStatus to abort on, or None if clear to
+    proceed. A filename-heuristic hit (census, psid, nda, ...) is a lead,
+    not proof, so it's never trusted on its own: re-ask via
+    ``--restricted-override {yes,no}`` (scripted) or an interactive
+    prompt, and only abort if that confirms the data really is
+    restricted. No TTY and no override flag fails safe (abort) — same
+    as before this existed, just no longer fooled by a bare filename.
+    """
+    from .confidentiality import check_restricted, confirm_restricted_hit
+
+    restricted = check_restricted(project)
+    if not restricted.is_restricted:
+        return None
+
+    override_answer = _parse_restricted_override(getattr(args, "restricted_override", None))
+    if override_answer is not None:
+        still_restricted = confirm_restricted_hit(restricted, answer=override_answer)
+    elif sys.stdin.isatty():
+        still_restricted = confirm_restricted_hit(restricted)
+    else:
+        still_restricted = True  # no way to ask — fail safe
+
+    return restricted if still_restricted else None
+
+
 def _prefix() -> str:
     """`[dr]` tag prepended to the startup banner — cyan+bold, dims to plain text with --no-color."""
     return _bold(_cyan("[dr]"))
@@ -107,7 +141,6 @@ def _print_gap_table(graph: Any) -> None:
 # ---------------------------------------------------------------------------
 
 def _cmd_graph(args: argparse.Namespace) -> int:
-    from .confidentiality import check_restricted
     from .graph import build_graph
 
     project = Path(args.project).resolve()
@@ -115,9 +148,10 @@ def _cmd_graph(args: argparse.Namespace) -> int:
         print(f"{_FAIL} path not found: {project}", file=sys.stderr)
         return 1
 
-    restricted = check_restricted(project)
-    if restricted.is_restricted:
+    restricted = _gate_restricted(project, args)
+    if restricted is not None:
         print(f"{_FAIL} restricted data: {restricted.reason}", file=sys.stderr)
+        print(f"  {_dim('re-run with --restricted-override no once confirmed this is not restricted')}", file=sys.stderr)
         return 1
 
     graph = build_graph(project)
@@ -142,7 +176,6 @@ def _cmd_graph(args: argparse.Namespace) -> int:
 
 def _cmd_check(args: argparse.Namespace) -> int:
     from .capture import capture_env
-    from .confidentiality import check_restricted
     from .graph import build_graph
 
     project = Path(args.project).resolve()
@@ -150,9 +183,10 @@ def _cmd_check(args: argparse.Namespace) -> int:
         print(f"{_FAIL} path not found: {project}", file=sys.stderr)
         return 1
 
-    restricted = check_restricted(project)
-    if restricted.is_restricted:
+    restricted = _gate_restricted(project, args)
+    if restricted is not None:
         print(f"{_FAIL} restricted data: {restricted.reason}", file=sys.stderr)
+        print(f"  {_dim('re-run with --restricted-override no once confirmed this is not restricted')}", file=sys.stderr)
         return 1
 
     graph = build_graph(project)
@@ -195,23 +229,60 @@ def _collect_intake(args: argparse.Namespace):
     otherwise           : interactive questionnaire if stdin is a TTY;
                           if not a TTY and no answers file, skip with a warning
                           rather than hang waiting on stdin.
+
+    §4.2: if the author said "no" up front (or we never got to ask) but a
+    filename later matches the restricted-data heuristic, that's a lead,
+    not proof — a project can legitimately contain files named `census`
+    or `psid`. So this re-asks specifically about that hit rather than
+    silently switching into restricted mode, and bakes the answer into
+    the returned IntakeResult (`restricted_data` if confirmed genuinely
+    restricted, `restricted_override_safe` if confirmed a false alarm).
     """
     from .intake import questionnaire
+    from .models import IntakeResult
 
     if args.skip_intake:
-        return None
-
-    if args.answers_file:
+        intake = None
+    elif args.answers_file:
         answers = json.loads(Path(args.answers_file).read_text())
-        return questionnaire(answers=answers)
+        intake = questionnaire(answers=answers)
+    elif sys.stdin.isatty():
+        intake = questionnaire()
+    else:
+        if not args.json:
+            print(f"{_WARN} no TTY and no --answers-file — skipping intake questionnaire "
+                  "(relying on filename-based restricted-data detection only)")
+        intake = None
 
-    if sys.stdin.isatty():
-        return questionnaire()
+    if intake is not None and intake.restricted_data:
+        return intake  # author already confirmed yes — nothing to re-ask
 
-    if not args.json:
-        print(f"{_WARN} no TTY and no --answers-file — skipping intake questionnaire "
-              "(relying on filename-based restricted-data detection only)")
-    return None
+    project_raw = getattr(args, "project", None)
+    project = Path(project_raw).resolve() if project_raw else None
+    if project is None or not project.exists():
+        return intake
+
+    from .confidentiality import check_restricted, confirm_restricted_hit
+
+    restricted = check_restricted(project)
+    if not restricted.is_restricted:
+        return intake
+
+    override_answer = _parse_restricted_override(getattr(args, "restricted_override", None))
+    if override_answer is not None:
+        confirmed_restricted = confirm_restricted_hit(restricted, answer=override_answer)
+    elif sys.stdin.isatty():
+        confirmed_restricted = confirm_restricted_hit(restricted)
+    else:
+        confirmed_restricted = True  # no way to ask — fail safe
+
+    if intake is None:
+        intake = IntakeResult()
+    if confirmed_restricted:
+        intake.restricted_data = True
+    else:
+        intake.restricted_override_safe = True
+    return intake
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -398,11 +469,17 @@ def main() -> None:
     # graph
     p_graph = sub.add_parser("graph", help="Build dependency graph and print gap report")
     p_graph.add_argument("project", help="Path to project directory")
+    p_graph.add_argument("--restricted-override", metavar="{yes,no}", choices=("yes", "no"),
+                       help="Answer to the restricted-data re-ask (§4.2) non-interactively, "
+                            "if a filename heuristic hit fires. 'no' = confirmed false positive.")
     p_graph.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # check
     p_check = sub.add_parser("check", help="GRAPH + CAPTURE; no execution")
     p_check.add_argument("project", help="Path to project directory")
+    p_check.add_argument("--restricted-override", metavar="{yes,no}", choices=("yes", "no"),
+                       help="Answer to the restricted-data re-ask (§4.2) non-interactively, "
+                            "if a filename heuristic hit fires. 'no' = confirmed false positive.")
     p_check.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
     # run
@@ -423,6 +500,9 @@ def main() -> None:
     p_run.add_argument("--skip-intake", action="store_true",
                        help="Skip the intake questionnaire entirely (relies solely on "
                             "filename-based restricted-data detection)")
+    p_run.add_argument("--restricted-override", metavar="{yes,no}", choices=("yes", "no"),
+                       help="Answer to the restricted-data re-ask (§4.2) non-interactively, "
+                            "if a filename heuristic hit fires. 'no' = confirmed false positive.")
     p_run.add_argument("--stop-after", metavar="STEP", choices=STOP_AFTER_STEPS, default=None,
                        help=f"Halt right after the named step, for narrating one step at a "
                             f"time (choices: {', '.join(STOP_AFTER_STEPS)})")
