@@ -1,5 +1,6 @@
 \documentclass{article}
 \usepackage{graphicx}
+\usepackage{booktabs}
 
 \title{Land Use, Structural Change and Urban Expansion: Fan-Out Fidelity Slice}
 \author{F. Oswald}
@@ -15,6 +16,12 @@ package, both reading the same real input,
 1806--2018): \texttt{code/stata/figure1.do} (Figure~\ref{fig:1} and two
 appendix figures) and \texttt{code/stata/generatethetas.do}
 (Figure~\ref{fig:7}, Figure~\ref{fig:a3} and Figure~\ref{fig:a4}).
+A seventh, synthetic exhibit extends the chain one stage further:
+\texttt{code/julia/combine\_theta\_summary.jl} reads
+\texttt{generatethetas.do}'s rural TFP series together with a
+coauthor-supplied decade weighting scheme to produce Table~\ref{tab:theta}
+(see \texttt{demo/landuse\_fanout/README.md} — this stage is fabricated
+for the demo, not part of the real published package).
 
 \section{Results}
 
@@ -59,5 +66,12 @@ appendix figures) and \texttt{code/stata/generatethetas.do}
 \caption{Sectoral productivity, rural vs.\ urban (Appendix A.4)}
 \label{fig:a4}
 \end{figure}
+
+\begin{table}[h]
+\centering
+\input{output/TableTheta.tex}
+\caption{Decade-weighted average rural TFP}
+\label{tab:theta}
+\end{table}
 
 \end{document}

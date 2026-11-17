@@ -94,6 +94,12 @@ def check_restricted(project_root: Path) -> RestrictedStatus:
     return RestrictedStatus(is_restricted=False)
 
 
+def parse_yes_no(raw: str) -> bool:
+    """Shared yes/no parsing for interactive author prompts (restricted-hit
+    re-ask, per-fix approval, ...). Keeps the accepted spellings in one place."""
+    return raw.strip().lower() in ("y", "yes", "true", "1")
+
+
 def confirm_restricted_hit(
     restricted: RestrictedStatus,
     *,
@@ -141,5 +147,5 @@ def confirm_restricted_hit(
         "  Before I read any data files, please confirm: is this covered by a data use\n"
         "  agreement, IRB protocol, or NDA? Answer yes/no: "
     )
-    raw = _input_fn(prompt).strip().lower()
-    return raw in ("y", "yes", "true", "1")
+    raw = _input_fn(prompt)
+    return parse_yes_no(raw)

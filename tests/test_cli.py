@@ -28,6 +28,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         skip_intake=True,
         restricted_override=None,
         stop_after=None,
+        auto_approve_fixes=False,
         json=True,
     )
     defaults.update(overrides)
@@ -53,8 +54,13 @@ def test_collect_intake_answers_file(tmp_path: Path) -> None:
 def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, capsys) -> None:
     """
     Project has no restricted-sounding filenames — only the intake answer
-    should trigger the abort. Confirms the real CLI path (not just
+    should mark the run restricted. Confirms the real CLI path (not just
     orchestrator.run_pipeline called directly) honors it.
+
+    Restricted no longer aborts the pipeline (#27) — it only disables
+    LLM-FIX/ASK hints for the rest of the run, so a working copy is made
+    just like any other run. `--stop-after detect` keeps this test from
+    needing a real interpreter to execute the (nonexistent) master script.
     """
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "wages.csv").write_bytes(b"")
@@ -63,16 +69,19 @@ def test_cmd_run_honors_restricted_answer_no_filename_trigger(tmp_path: Path, ca
     answers_path = tmp_path / "answers.json"
     answers_path.write_text(json.dumps({"restricted_data": "yes"}))
 
-    args = _make_args(project=str(tmp_path), skip_intake=False, answers_file=str(answers_path))
+    args = _make_args(
+        project=str(tmp_path), skip_intake=False, answers_file=str(answers_path),
+        stop_after="detect",
+    )
     rc = _cmd_run(args)
 
     out = capsys.readouterr().out
     payload = json.loads(out)
 
     assert payload["restricted"]["is_restricted"] is True
-    assert "restricted" in payload["error"].lower()
-    assert payload["working_copy"] == str(tmp_path)  # sentinel — no copy made
-    assert rc == 1
+    assert payload["error"] is None
+    assert payload["working_copy"] != str(tmp_path)  # a real copy was made, not the sentinel
+    assert rc == 0
 
 
 # ---------------------------------------------------------------------------
@@ -152,3 +161,32 @@ def test_cmd_run_skip_intake_relies_on_filename_only(tmp_path: Path, capsys) -> 
 
     assert payload["restricted"]["is_restricted"] is False
     assert payload["intake"] is None
+
+
+# ---------------------------------------------------------------------------
+# #28 — --auto-approve-fixes reaches run_pipeline as a working callable
+# ---------------------------------------------------------------------------
+
+
+def test_auto_approve_fixes_flag_reaches_run_pipeline(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "paper.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+
+    captured = {}
+
+    def fake_run_pipeline(*args, **kwargs):
+        captured["approve_fn"] = kwargs.get("approve_fn")
+        from deadreckoning.orchestrator import PipelineResult
+        from deadreckoning.models import RestrictedStatus
+        return PipelineResult(
+            project_root=tmp_path, working_copy=tmp_path,
+            restricted=RestrictedStatus(is_restricted=False),
+        )
+
+    monkeypatch.setattr("deadreckoning.orchestrator.run_pipeline", fake_run_pipeline)
+
+    args = _make_args(project=str(tmp_path), skip_intake=True, auto_approve_fixes=True)
+    _cmd_run(args)
+
+    approve_fn = captured["approve_fn"]
+    assert approve_fn is not None
+    assert approve_fn(object()) is True

@@ -1,12 +1,13 @@
 # DeadReckoning presentation demo
 
-Six segments, ~12 minutes total. All drive the real pipeline
+Seven segments, ~14 minutes total. All drive the real pipeline
 (`run_pipeline` / `deadreckoning run`), not hand-built objects. The first
 three rig a broken/renamed path that crashes and gets fixed live by an
 LLM; the fourth and fifth are the harder case — nothing crashes, the
 numbers are just silently wrong; the sixth is three independent static
 leads surfaced before anything runs, in a package mixing three
-languages.
+languages; the seventh is a filename lead on confidential data, where
+the fix loop refuses to run at all.
 
 Every script below also takes `--pause`, in addition to `--terse`:
 waits for Enter before each narrated step instead of printing the whole
@@ -306,22 +307,40 @@ realistic ask for most social scientists. This check and its mtime
 fallback exist for the world as it actually is: no git, no CI, just a
 shared Dropbox folder.
 
-## 5. Fan-out fidelity — `demo/run_demo_landuse_fanout.py`
+## 5. Fan-out fidelity + chain drift — `demo/run_demo_landuse_fanout.py`
 
-Same silent-drift mechanism as segment 4, but at scale: one real shared
-data input, two real Stata scripts, six real exhibits — and only three
-of the six are actually stale. Extends `demo/landuse_real/` (untouched
-by this demo) with a second script, `code/stata/generatethetas.do`,
-which reads the same `data/raw/FRA_base.dta` as `code/stata/figure1.do`.
+Both silent-drift shapes from the deck, live, in one run: segment 4's
+chain (a downstream consumer that never reran), plus a parallel fan-out
+at scale — one real shared data input, two real Stata scripts, six real
+exhibits. Extends `demo/landuse_real/` (untouched by this demo) with a
+second script, `code/stata/generatethetas.do`, which reads the same
+`data/raw/FRA_base.dta` as `code/stata/figure1.do`, plus a third,
+synthetic script, `code/julia/combine_theta_summary.jl` — fabricated for
+this demo, not part of the real published package (see
+`demo/landuse_fanout/README.md`) — which reads `generatethetas.do`'s
+output and a coauthor-supplied decade weighting scheme to produce a
+seventh exhibit, `TableTheta.tex`.
 
-The rig: a provider restatement of two 1950 observations in
-`FRA_base.dta`. `generatethetas.do` was rerun after the restatement, so
-its three reference exhibits (`figureA3.pdf`, `figure7.pdf`,
-`figureA4.pdf`) already reflect the current data. `figure1.do` was
-believed unaffected and never rerun, so its three reference exhibits
-(`figure1.pdf`, `figureA2a.pdf`, `figureA2b.pdf`) still reflect the
-pre-restatement data. Every script still exits 0, every exhibit still
-lands on disk — nothing crashes.
+Two independent rigs:
+
+1. **Fan-out** (baked into `reference/` ahead of time): a provider
+   restatement of two 1950 observations in `FRA_base.dta`.
+   `generatethetas.do` was rerun after the restatement, so its three
+   reference exhibits (`figureA3.pdf`, `figure7.pdf`, `figureA4.pdf`)
+   already reflect the current data. `figure1.do` was believed
+   unaffected and never rerun, so its three reference exhibits
+   (`figure1.pdf`, `figureA2a.pdf`, `figureA2b.pdf`) still reflect the
+   pre-restatement data.
+2. **Chain** (performed live by the demo script, like segment 4): a
+   coauthor's private export script modernizes `outsheet` ->
+   `export delimited` with no display format set, silently leaking full
+   double-precision decade weights into `data/decade_weights.csv`.
+   `combine_theta_summary.jl`, the downstream consumer, is never rerun
+   before the swap, so `TableTheta.tex` is stale too — for a completely
+   different reason than the other three mismatches.
+
+Every script still exits 0, every exhibit still lands on disk — nothing
+crashes.
 
 ```bash
 python3 demo/run_demo_landuse_fanout.py           # full step-by-step narration
@@ -329,18 +348,23 @@ python3 demo/run_demo_landuse_fanout.py --terse   # one line per step
 ```
 
 Shows: DETECT, SCAN, RESOLVE, ASK, FIX, RUN, and VALIDATE all pass
-clean on all six exhibits. **FIDELITY** is the only check that tells the
-three `figure1.do` exhibits apart from the three `generatethetas.do`
-exhibits, and it converges all three mismatches on the same suspect,
-`data/raw/FRA_base.dta`, without ever flagging the three that are
-actually fine. See `demo/landuse_fanout/README.md` for exactly how the
-reference set was built and verified.
+clean on all seven exhibits. **FIDELITY** is the only check that tells
+them apart, and names two different suspects for two different reasons
+in the same run: `figure1.do`'s three exhibits implicate only
+`data/raw/FRA_base.dta`; `TableTheta.tex` implicates both
+`data/raw/FRA_base.dta` (a real but incidental upstream link —
+`combine_theta_summary.jl`'s input is itself produced by
+`generatethetas.do`) and `data/decade_weights.csv` (the actual cause) —
+without ever flagging the three `generatethetas.do` exhibits that are
+actually fine. See `demo/landuse_fanout/README.md` for exactly how both
+rigs were built and verified.
 
 No LLM fix-loop act in this demo either — same as segment 4, there's
 nothing to fix automatically, only a divergence to surface and a
 suspect to name. No Docker, no `ANTHROPIC_API_KEY` needed.
 
-Needs a local Stata install for the native RUN step, same as segment 3.
+Needs a local Stata install for the native RUN step, same as segment 3,
+plus a local Julia install with CSV.jl/DataFrames.jl.
 
 ## 6. Rcpp mixed-language package — `run_demo_rcpp_rng.py`
 
@@ -406,11 +430,48 @@ No LLM fix-loop act — nothing here crashes. No Docker, no
 `ANTHROPIC_API_KEY` needed. Needs a local Stata install, R with `Rcpp`
 and `haven`, and a C++ compiler for the native RUN step.
 
+## 7. Restricted/confidential data — `run_demo_restricted.py`
+
+Made-up household-income survey, one real bug, one filename lead.
+`code/analysis.py` reads `data/survey_confidential.csv` — the filename
+alone trips DETECT's heuristic ("confidential"), no file content opened
+to make that call. Before #27, that aborted the whole pipeline: no
+working copy, nothing downstream ran. Now it keeps going —
+GRAPH/CAPTURE/SCAN/RESOLVE/RUN/VALIDATE are all 100%-local already,
+restricted or not — with LLM-FIX and ASK hints unconditionally off for
+the rest of the run.
+
+```bash
+python3 demo/run_demo_restricted.py           # full step-by-step narration
+python3 demo/run_demo_restricted.py --terse   # one line per step
+```
+
+The script has a real, independent bug — it reads column
+`household_income`; the CSV's actual column is `income` — exactly the
+kind of thing Claude normally fixes live (segment 1's Act 3). Here the
+fix loop refuses to even try: `LLMDispatcher(restricted=True)` is handed
+a client that raises `AssertionError` if touched at all, to prove the
+refusal happens before `_get_client()`, let alone a prompt, regardless
+of whether an API key is set. The run stays failed. The new
+`DATA-STRUCTURE-SUMMARY.md` (row counts + column names, never cell
+values, never transmitted) already has the one fact — the real column
+name — a human author would need to fix this themselves in ten seconds.
+
+Also passes `approve_fn` through to `run_llm_fix_loop` (#28's per-action
+approval gate), to show it's wired — but never actually exercised here,
+since a restricted dispatcher never proposes a fix for anything to
+approve.
+
+No API key needed (the dispatcher never calls out either way), no
+Docker, no local interpreter beyond Python's standard library — the
+most portable demo of the seven. Fully covered by
+`tests/test_demo_restricted.py` in regular CI (not `-m local`).
+
 ## Notes
 
-- None of the six scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
-  `demo/landuse_real/`, `demo/coauthor_drift/`, `demo/landuse_fanout/`, or
-  `demo/rcpp_rng/` directly — the pipeline always works on a temp copy,
-  printed as "Working copy" in the output.
-- All six scripts write `DATA-EXHIBIT-MAP.md` into that working copy
+- None of the seven scripts touch `demo/toy_paper/`, `demo/bus_locations_real/`,
+  `demo/landuse_real/`, `demo/coauthor_drift/`, `demo/landuse_fanout/`,
+  `demo/rcpp_rng/`, or `demo/restricted_data/` directly — the pipeline always
+  works on a temp copy, printed as "Working copy" in the output.
+- All seven scripts write `DATA-EXHIBIT-MAP.md` into that working copy
   (the generated data availability statement).

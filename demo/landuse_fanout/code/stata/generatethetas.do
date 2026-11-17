@@ -150,6 +150,11 @@ keep year theta_rural theta_urban Employment_rural Land_rural P_rural_Sauvy P_ru
 ***save inputs for model
 save "data/processed/FRA_model.dta", replace
 
+***also export a flat csv of the rural TFP series for combine_theta_summary.jl
+***(downstream synthetic coauthor combine stage — see demo/landuse_fanout/README.md)
+***no varlist: outsheet exports every variable already kept above
+outsheet using "data/processed/FRA_model.csv", comma replace
+
 ***only sarting in 1840 for Figures in Paper = Figure 7 in main text and A.4 in Appendix
 drop if year<1840
 

@@ -469,6 +469,71 @@ def test_run_docker_fix_loop_build_fail_no_fix(tmp_path, monkeypatch):
     assert "no auto-fix" in result.error
 
 
+def test_run_docker_fix_loop_restricted_never_calls_live_client(tmp_path, monkeypatch):
+    """#27 — a restricted run going through the Docker LLM-fix path must
+    never reach a live Anthropic client, even when outputs come up missing."""
+    from deadreckoning.models import DependencyGraph
+
+    def _raise(*a, **kw):
+        raise AssertionError("must never construct a live client")
+
+    monkeypatch.setattr("deadreckoning.llm_dispatcher.LLMDispatcher._get_client", _raise)
+    monkeypatch.setattr(
+        "deadreckoning.docker.build_image",
+        lambda *a, **kw: _make_build_result(True),
+    )
+    monkeypatch.setattr(
+        "deadreckoning.docker.run_in_container",
+        lambda *a, **kw: _make_run_result(False),
+    )
+    monkeypatch.setattr("deadreckoning.docker.write_dockerignore", lambda *a, **kw: None)
+
+    graph = DependencyGraph(project_root=tmp_path)
+    spec = _python_spec(packages=["pandas"])
+    result = run_docker_fix_loop(tmp_path, graph, spec, image_tag="dr:test", restricted=True)
+
+    assert not result.converged
+    assert result.error is not None
+    assert "Outputs missing" in result.error
+
+
+def test_run_docker_fix_loop_rejecting_approve_fn_stops_without_applying(tmp_path, monkeypatch):
+    """#28 — a rejecting approve_fn must stop the Docker-path LLM-fix loop
+    without applying the proposed fix."""
+    from deadreckoning.fix_loop import FixAction
+    from deadreckoning.models import DependencyGraph
+
+    proposed = FixAction(kind="rewrite_path", script=Path("code/run.py"),
+                          old_path="old.csv", new_path="new.csv")
+
+    class _StubDispatcher:
+        def __init__(self, *a, **kw):
+            self.reasoning = []
+
+        def next_fix(self, gaps, context):
+            return proposed
+
+    monkeypatch.setattr("deadreckoning.llm_dispatcher.LLMDispatcher", _StubDispatcher)
+    monkeypatch.setattr(
+        "deadreckoning.docker.build_image",
+        lambda *a, **kw: _make_build_result(True),
+    )
+    monkeypatch.setattr(
+        "deadreckoning.docker.run_in_container",
+        lambda *a, **kw: _make_run_result(False),
+    )
+    monkeypatch.setattr("deadreckoning.docker.write_dockerignore", lambda *a, **kw: None)
+
+    graph = DependencyGraph(project_root=tmp_path)
+    spec = _python_spec(packages=["pandas"])
+    result = run_docker_fix_loop(
+        tmp_path, graph, spec, image_tag="dr:test", approve_fn=lambda action: False,
+    )
+
+    assert not result.converged
+    assert not any("rewrite_path" in f for f in result.dockerfile_fixes)
+
+
 # ---------------------------------------------------------------------------
 # warn_before_push
 # ---------------------------------------------------------------------------

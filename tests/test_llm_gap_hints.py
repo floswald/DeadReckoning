@@ -55,6 +55,21 @@ def test_returns_none_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert d.propose_hint(gap, graph, Path("/tmp/proj")) is None
 
 
+def test_restricted_dispatcher_never_calls_client() -> None:
+    """See #27 — restricted must short-circuit before _get_client()/
+    _build_prompt is even reached."""
+    client = MagicMock()
+    client.messages.create.side_effect = AssertionError("must never be called")
+    d = GapHintDispatcher(client=client, restricted=True)
+    gap = Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("fig1.pdf"), candidate_scripts=[])
+    graph = DependencyGraph(project_root=Path("/tmp/proj"), gaps=[gap])
+
+    result = d.propose_hint(gap, graph, Path("/tmp/proj"))
+
+    assert result is None
+    client.messages.create.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Gap kinds this module doesn't handle — must no-op without calling the client
 # ---------------------------------------------------------------------------

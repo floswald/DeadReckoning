@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -16,9 +17,10 @@ from deadreckoning.fix_loop import (
     apply_fix,
     fix_write_path,
     run_fix_loop,
+    run_llm_fix_loop,
 )
 from deadreckoning.graph import build_graph
-from deadreckoning.models import GapKind, ScriptWritesExhibit, Exhibit, Gap, DependencyGraph
+from deadreckoning.models import EnvSpec, GapKind, ScriptWritesExhibit, Exhibit, Gap, DependencyGraph
 from deadreckoning.scan import scan_r_scripts
 from deadreckoning.resolve import resolve_paths
 
@@ -281,3 +283,79 @@ def test_append_fix_report_no_fixes_message(tmp_path):
     append_fix_report(tmp_path, fix_result)
     text = (tmp_path / "AGENT_REPORT.md").read_text()
     assert "No fixes needed" in text
+
+
+# ---------------------------------------------------------------------------
+# run_llm_fix_loop — per-action approval gate (#28)
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedDispatcher:
+    """Proposes install_package fixes from a fixed list, then None."""
+
+    def __init__(self, package_names: list[str]) -> None:
+        self._remaining = list(package_names)
+        self.reasoning: list[str] = []
+
+    def next_fix(self, gaps, context) -> Optional[FixAction]:
+        if not self._remaining:
+            return None
+        name = self._remaining.pop(0)
+        return FixAction(kind="install_package", package_name=name, package_version="1.0")
+
+
+def test_rejected_action_stops_loop_without_applying(tmp_path):
+    env_spec = EnvSpec(language="python")
+    graph = DependencyGraph(project_root=tmp_path)
+    dispatcher = _ScriptedDispatcher(["numpy"])
+
+    result, _ = run_llm_fix_loop(
+        tmp_path, graph, env_spec,
+        dispatcher=dispatcher,
+        master_script="code/run.py",
+        approve_fn=lambda action: False,
+    )
+
+    assert result.stopped_by_author is True
+    assert result.rejected_action is not None
+    assert result.rejected_action.package_name == "numpy"
+    assert result.fixes_applied == []
+    assert not any(p.name == "numpy" for p in env_spec.packages)
+
+
+def test_approved_actions_apply_and_continue(tmp_path):
+    env_spec = EnvSpec(language="python")
+    graph = DependencyGraph(project_root=tmp_path)
+    dispatcher = _ScriptedDispatcher(["numpy", "pandas"])
+
+    result, _ = run_llm_fix_loop(
+        tmp_path, graph, env_spec,
+        dispatcher=dispatcher,
+        master_script="code/run.py",
+        approve_fn=lambda action: True,
+    )
+
+    assert result.converged is True
+    assert result.stopped_by_author is False
+    assert [fa.package_name for fa in result.fixes_applied] == ["numpy", "pandas"]
+    assert {p.name for p in env_spec.packages} == {"numpy", "pandas"}
+
+
+def test_loop_runs_past_old_default_cap_when_approved(tmp_path):
+    """#28 drops max_iterations=5 as the stopping condition — a dispatcher
+    proposing more than 5 distinct approved fixes must not be cut off."""
+    env_spec = EnvSpec(language="python")
+    graph = DependencyGraph(project_root=tmp_path)
+    package_names = [f"pkg{i}" for i in range(7)]
+    dispatcher = _ScriptedDispatcher(package_names)
+
+    result, _ = run_llm_fix_loop(
+        tmp_path, graph, env_spec,
+        dispatcher=dispatcher,
+        master_script="code/run.py",
+        approve_fn=lambda action: True,
+    )
+
+    assert result.converged is True
+    assert len(result.fixes_applied) == 7
+    assert result.error is None

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-DeadReckoning presentation demo — fan-out fidelity: one shared input, two
-real Stata scripts, six real exhibits, only some of them stale.
+DeadReckoning presentation demo — fan-out fidelity AND chain drift in one
+run: one shared input, two real Stata scripts, six real exhibits, plus a
+seventh synthetic exhibit one stage further downstream — only some of the
+seven are stale, and for two different reasons.
 
 Usage:
     python3 demo/run_demo_landuse_fanout.py
@@ -11,38 +13,58 @@ Extends the real, published LandUse-REStud slice already in
 demo/landuse_real/ (untouched by this demo) to a second real script,
 code/stata/generatethetas.do, which reads the *same* real input,
 data/raw/FRA_base.dta, as code/stata/figure1.do — one shared input, two
-scripts, six real exhibits.
+scripts, six real exhibits. On top of that, code/julia/combine_theta_summary.jl
+reads generatethetas.do's rural TFP series and a coauthor-supplied decade
+weighting scheme to produce a seventh exhibit, output/TableTheta.tex —
+fabricated for this demo (not part of the real published package; see
+demo/landuse_fanout/README.md), added so this demo can show both drift
+shapes from the deck in one run: Demo 4's chain (a downstream consumer
+never rerun) and the parallel fan-out this demo already exercised.
 
 Same silent-drift mechanism as the coauthor-drift demo (demo 4): nothing
-crashes, every script exits 0, every exhibit lands on disk. The
-difference here is scale and discrimination: of six exhibits sharing one
-upstream input, only three are actually stale, and check_exhibit_fidelity
-has to separate them correctly, not just flag "something touching
-FRA_base.dta changed" for all six indiscriminately.
+crashes, every script exits 0, every exhibit lands on disk. check_exhibit_fidelity
+has to separate the exhibits that are actually stale from the ones that
+aren't, not just flag "something changed" indiscriminately — and, unlike
+demo 4, it has to do that across two unrelated upstream causes converging
+on different exhibits in the same run.
 
-The rig (baked into reference/, not performed at demo-run time): a
-provider restatement of two 1950 observations (Land_Agriculture,
-Share_Emp_Agr100) in FRA_base.dta. generatethetas.do was rerun after the
-restatement, so its three reference exhibits (figureA3.pdf, figure7.pdf,
-figureA4.pdf) already reflect the current data. figure1.do was believed
-unaffected and never rerun, so its three reference exhibits (figure1.pdf,
-figureA2a.pdf, figureA2b.pdf) still reflect the pre-restatement data.
-See demo/landuse_fanout/README.md for exactly how the reference set was
-built and verified (both scripts run clean, deterministic PDF export
-confirmed by byte comparison).
+Two independent rigs:
+  1. Fan-out (baked into reference/, not performed at demo-run time): a
+     provider restatement of two 1950 observations (Land_Agriculture,
+     Share_Emp_Agr100) in FRA_base.dta. generatethetas.do was rerun after
+     the restatement, so its three reference exhibits (figureA3.pdf,
+     figure7.pdf, figureA4.pdf) already reflect the current data.
+     figure1.do was believed unaffected and never rerun, so its three
+     reference exhibits (figure1.pdf, figureA2a.pdf, figureA2b.pdf) still
+     reflect the pre-restatement data.
+  2. Chain (performed at demo-run time, like demo 4): a coauthor's
+     private export script modernizes outsheet -> export delimited with
+     no display format set, silently leaking full double-precision decade
+     weights into data/decade_weights.csv. combine_theta_summary.jl, the
+     downstream consumer, is never rerun before the swap — so the one
+     reference exhibit it's responsible for, TableTheta.tex, is stale too,
+     for a completely different reason than the other three.
 
-Requires a local Stata install (no LLM step — nothing here crashes, so
-there's no fix loop to invoke).
+See demo/landuse_fanout/README.md for exactly how both rigs were built
+and verified.
+
+Requires a local Stata install and a local Julia install with CSV.jl /
+DataFrames.jl (no LLM step — nothing here crashes, so there's no fix loop
+to invoke).
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
+import os
+import shutil as _shutil
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECT = REPO_ROOT / "demo" / "landuse_fanout"
+PRIVATE = REPO_ROOT / "demo" / "landuse_fanout_private"
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
@@ -53,7 +75,13 @@ EXHIBITS = [
     Path("output/data/plots/figureA3.pdf"),
     Path("output/data/plots/figure7.pdf"),
     Path("output/data/plots/figureA4.pdf"),
+    Path("output/TableTheta.tex"),
 ]
+
+# Timeline for the chain-drift stage, stamped explicitly via os.utime()
+# below — mirrors demo/run_demo_coauthor_drift.py's T_DELIVERED/T_REEXPORT.
+T_DELIVERED = datetime.datetime(2024, 1, 10).timestamp()
+T_REEXPORT = datetime.datetime(2024, 3, 5).timestamp()
 
 
 def banner(title: str) -> None:
@@ -87,15 +115,26 @@ def main(terse: bool = False) -> None:
     from deadreckoning.runner import check_exhibit_fidelity, group_fidelity_mismatches, run_natively, validate_outputs
     from deadreckoning.scan import scan_scripts
 
-    banner("One shared input, two real scripts, six real exhibits")
+    banner("One shared input, two real scripts, plus a synthetic chain stage")
     print("  code/stata/figure1.do          -> figure1.pdf, figureA2a.pdf, figureA2b.pdf")
     print("  code/stata/generatethetas.do   -> figureA3.pdf, figure7.pdf, figureA4.pdf")
     print("  both read data/raw/FRA_base.dta directly")
     print()
-    print("  reference/ ships a mix of two vintages: a provider restatement of two")
-    print("  1950 observations. generatethetas.do was rerun after the restatement,")
-    print("  figure1.do was believed unaffected and never rerun. Every script still")
-    print("  exits 0, every exhibit still lands on disk, nothing crashes.")
+    print("  code/julia/combine_theta_summary.jl -> TableTheta.tex")
+    print("  reads generatethetas.do's theta series + a coauthor-supplied decade")
+    print("  weighting scheme (fabricated for this demo — see README.md)")
+    print()
+    print("  reference/ ships a mix of vintages, for two unrelated reasons:")
+    print("  a provider restatement of two 1950 observations in FRA_base.dta")
+    print("  (generatethetas.do was rerun after it, figure1.do wasn't), and a")
+    print("  coauthor's private re-export of decade_weights.csv that")
+    print("  combine_theta_summary.jl never got rerun to pick up. Every script")
+    print("  still exits 0, every exhibit still lands on disk, nothing crashes.")
+
+    paper_pdf = PROJECT / "paper.pdf"
+    print(f"\n  Already-published paper (compiled ahead of time, output/ seeded from")
+    print(f"  reference/ — this is what the audience has in hand before any of this")
+    print(f"  runs): {paper_pdf}")
 
     banner("Full pipeline run, step by step")
 
@@ -162,10 +201,33 @@ def main(terse: bool = False) -> None:
         step("FIX (deterministic)", "no-LLM fixes only, e.g. a script writing to the wrong output path")
     print(f"  {fix_result.iterations} iteration(s), {len(fix_result.fixes_applied)} fix(es) applied")
 
-    # RUN (native) — both scripts, independent (neither consumes the
-    # other's output), both reading the current FRA_base.dta.
+    banner("Time passes: the coauthor re-exports, combine_theta_summary.jl doesn't rerun")
+    print("  Stamping the timeline explicitly (mtimes don't survive git clone/CI,")
+    print("  so this demo rigs them rather than relying on whatever ships):")
+    print(f"    decade_weights.csv v1 delivered, combine_theta_summary.jl run once:")
+    print(f"      {datetime.datetime.fromtimestamp(T_DELIVERED).date()}  (-> TableTheta.tex that ends up in reference/)")
+    print(f"    coauthor upgrades Stata, reruns export_weights.do, csv overwritten with v2:")
+    print(f"      {datetime.datetime.fromtimestamp(T_REEXPORT).date()}  (combine_theta_summary.jl is NOT rerun)")
+
+    weights_path = working_copy / "data" / "decade_weights.csv"
+    os.utime(weights_path, (T_DELIVERED, T_DELIVERED))
+    _shutil.copy(PRIVATE / "decade_weights_v2.csv", weights_path)
+    os.utime(weights_path, (T_REEXPORT, T_REEXPORT))
+    print("\n  data/decade_weights.csv swapped for the coauthor's re-exported version")
+    print("  (full double precision now, where it used to be truncated to 2 decimals)")
+    print("  — this already happened before acceptance; the accepted TableTheta.tex")
+    print("  simply never reflected it, because combine_theta_summary.jl was never")
+    print("  rerun to pick it up.")
+
+    # RUN (native) — figure1.do and generatethetas.do are independent
+    # (neither consumes the other's output), both reading the current
+    # FRA_base.dta. combine_theta_summary.jl runs last, after
+    # generatethetas.do, since it consumes FRA_model.csv — the topological
+    # order GRAPH derived from the produced_by link.
     if not terse:
-        step("RUN (native)", "execute every script in script_order — both read the current FRA_base.dta")
+        step("RUN (native)", "execute every script in script_order — figure1.do/generatethetas.do read "
+                              "the current FRA_base.dta, combine_theta_summary.jl re-reads the "
+                              "(now re-exported) decade weights")
     all_ok = True
     for script in graph.script_order:
         rel = script.relative_to(working_copy)
@@ -195,8 +257,9 @@ def main(terse: bool = False) -> None:
     ]
     matches = [r for r in results if r.matches_reference]
     mismatches = [r for r in results if not r.matches_reference]
-    print(f"  {len(matches)}/6 match reference: {[r.exhibit.name for r in matches]}")
-    print(f"  {len(mismatches)}/6 MISMATCH:      {[r.exhibit.name for r in mismatches]}")
+    n = len(EXHIBITS)
+    print(f"  {len(matches)}/{n} match reference: {[r.exhibit.name for r in matches]}")
+    print(f"  {len(mismatches)}/{n} MISMATCH:      {[r.exhibit.name for r in mismatches]}")
 
     grouped = group_fidelity_mismatches(results)
     print(f"\n  {len(grouped)} suspect upstream file(s) implicated:")
@@ -212,20 +275,27 @@ def main(terse: bool = False) -> None:
     if not terse:
         step("CLEAN", "BFS from exhibits back through scripts to flag files nothing reaches (orphans)")
     print(f"  {len(clean.orphans)} orphan(s){' — CLEANUP.md written' if needs_review else ''}")
-    print("  (expected here: CLEAN's dependency walk doesn't yet cross-reference the 6")
-    print("  regenerated plots, the 6 shipped reference/ copies, and the 1 intermediate")
-    print("  FRA_model.dta against the exhibits paper.tex declares, so all 13 land in")
-    print("  CLEANUP.md even though VALIDATE already confirmed the 6 outputs are the")
-    print("  real exhibits. Not a FIDELITY bug — just a gap in CLEAN's matching.)")
+    print("  (expected here: CLEAN's dependency walk doesn't yet cross-reference the")
+    print("  regenerated plots/table, the shipped reference/ copies, and the")
+    print("  intermediate FRA_model.dta/csv against the exhibits paper.tex declares, so")
+    print("  files VALIDATE already confirmed are real exhibits land in CLEANUP.md too.")
+    print("  Not a FIDELITY bug — just a gap in CLEAN's matching.)")
 
     banner("What happened")
-    print("  Six exhibits, two scripts, one shared input. DETECT, SCAN, RESOLVE, ASK,")
-    print("  FIX, RUN, VALIDATE all passed clean on all six. FIDELITY is the only")
-    print("  check that tells the three figure1.do exhibits apart from the three")
-    print("  generatethetas.do exhibits — and it converges all three mismatches on")
-    print("  the same suspect, data/raw/FRA_base.dta, without ever flagging the")
-    print("  three that are actually fine. That discrimination is the point: a tool")
-    print("  that flagged all six indiscriminately wouldn't be doing more than grep.")
+    print(f"  {n} exhibits, three scripts, two independent drift mechanisms. DETECT,")
+    print("  SCAN, RESOLVE, ASK, FIX, RUN, VALIDATE all passed clean on all seven.")
+    print("  FIDELITY is the only check that tells them apart. figure1.do's three")
+    print("  exhibits implicate only data/raw/FRA_base.dta (the provider")
+    print("  restatement) — without ever flagging the three generatethetas.do")
+    print("  exhibits that are actually fine. TableTheta.tex implicates two files:")
+    print("  data/raw/FRA_base.dta (a real but incidental upstream link —")
+    print("  combine_theta_summary.jl's input is produced by generatethetas.do,")
+    print("  which also reads FRA_base.dta) and data/decade_weights.csv, the")
+    print("  actual cause. FIDELITY names every upstream file in the chain, not")
+    print("  just the guilty one — same 'lead, not proof' caveat as demo 4. That")
+    print("  discrimination is still the point: a tool that flagged everything")
+    print("  touching any changed upstream file indiscriminately wouldn't be")
+    print("  doing more than grep.")
 
 
 if __name__ == "__main__":

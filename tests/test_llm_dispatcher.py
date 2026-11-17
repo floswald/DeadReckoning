@@ -86,6 +86,22 @@ class TestLLMDispatcherNoApiKey:
         assert d.next_fix(gaps, ctx) is None
 
 
+class TestLLMDispatcherRestricted:
+    def test_restricted_dispatcher_never_calls_client(self) -> None:
+        """See #27 — restricted must short-circuit before _get_client() is
+        even reached, let alone before any prompt is built."""
+        client = MagicMock()
+        client.messages.create.side_effect = AssertionError("must never be called")
+        d = LLMDispatcher(client=client, restricted=True)
+        gaps = [Gap(kind=GapKind.exhibit_no_source_script, exhibit=Path("fig1.pdf"))]
+        ctx = _make_context()
+
+        result = d.next_fix(gaps, ctx)
+
+        assert result is None
+        client.messages.create.assert_not_called()
+
+
 class TestLLMDispatcherNoActionableGaps:
     def test_inline_gaps_skipped(self) -> None:
         client = MagicMock()

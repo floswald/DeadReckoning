@@ -140,7 +140,8 @@ class LLMDispatcher:
     Calls Claude to propose one FixAction per invocation.
 
     - Uses claude-sonnet-4-6 by default; escalates to claude-opus-4-8 after stalls.
-    - Returns None (converged) if: no API key, no tool call returned, or stall limit hit.
+    - Returns None (converged) if: restricted, no API key, no tool call returned,
+      or stall limit hit.
     - `reasoning` list accumulates per-turn text for AGENT_REPORT.
     """
 
@@ -150,6 +151,7 @@ class LLMDispatcher:
         model: str = "claude-sonnet-4-6",
         max_model: str = "claude-opus-4-8",
         max_stalls: int = 3,
+        restricted: bool = False,
     ) -> None:
         self._client = client
         self.model = model
@@ -158,6 +160,11 @@ class LLMDispatcher:
         self._stall_count: int = 0
         self._max_stalls = max_stalls
         self.reasoning: list[str] = []
+        # Confidential/restricted data was detected for this project — never
+        # call the API, never build a prompt. See issue #27: a narrow tool
+        # schema today is not a guarantee against a more capable one
+        # tomorrow, so this is an unconditional refusal, not a filter.
+        self.restricted = restricted
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -170,6 +177,9 @@ class LLMDispatcher:
         return self._client
 
     def next_fix(self, gaps: list[Gap], context: FixContext) -> Optional[FixAction]:
+        if self.restricted:
+            return None
+
         client = self._get_client()
         if client is None:
             return None

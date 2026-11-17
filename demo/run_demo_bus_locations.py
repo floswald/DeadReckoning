@@ -188,6 +188,7 @@ def main(terse: bool = False, skip_docker: bool = False) -> None:
             working_copy, graph, env_spec,
             master_script=master_script,
             initial_stderr=native_run.stderr,
+            approve_fn=lambda action: True,
         )
         append_fix_report(working_copy, llm_result)
         print(f"  {llm_result.iterations} iteration(s), converged={llm_result.converged}")
