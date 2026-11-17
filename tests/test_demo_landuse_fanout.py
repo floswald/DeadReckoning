@@ -31,15 +31,24 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 def test_fixture_scripts_and_data_present():
     assert (FIXTURE / "code" / "stata" / "figure1.do").exists()
     assert (FIXTURE / "code" / "stata" / "generatethetas.do").exists()
+    assert (FIXTURE / "code" / "julia" / "combine_theta_summary.jl").exists()
     assert (FIXTURE / "data" / "raw" / "FRA_base.dta").exists()
+    assert (FIXTURE / "data" / "decade_weights.csv").exists()
 
 
-def test_fixture_reference_has_all_six_exhibits():
+def test_fixture_reference_has_all_seven_exhibits():
     for name in (
         "figure1.pdf", "figureA2a.pdf", "figureA2b.pdf",
         "figureA3.pdf", "figure7.pdf", "figureA4.pdf",
+        "TableTheta.tex",
     ):
         assert (FIXTURE / "reference" / name).exists(), name
+
+
+def test_private_decade_weights_fixture_present():
+    private = REPO_ROOT / "demo" / "landuse_fanout_private"
+    assert (private / "decade_weights_v1.csv").exists()
+    assert (private / "decade_weights_v2.csv").exists()
 
 
 def test_fixture_both_scripts_read_the_same_input():
@@ -72,21 +81,24 @@ def test_graph_sees_one_shared_data_file_referenced_by_both_scripts():
 
 @pytest.mark.local
 @pytest.mark.stata
-def test_demo_script_runs_end_to_end_and_discriminates_3_3(capsys):
+def test_demo_script_runs_end_to_end_and_discriminates_3_4(capsys):
     import run_demo_landuse_fanout
 
     run_demo_landuse_fanout.main(terse=True)
 
     out = capsys.readouterr().out
     assert "restricted: False" in out
-    assert "3/6 match reference" in out
-    assert "3/6 MISMATCH" in out
+    assert "3/7 match reference" in out
+    assert "4/7 MISMATCH" in out
 
-    # figure1.do's three exhibits are the stale ones; generatethetas.do's
-    # three are current — this is the discrimination the demo exists to show.
+    # figure1.do's three exhibits are stale from the fan-out rig;
+    # generatethetas.do's three are current; TableTheta.tex is stale from
+    # the separate chain rig — two unrelated drift mechanisms in one run.
     assert "figure1.pdf" in out and "figureA2a.pdf" in out and "figureA2b.pdf" in out
     assert "figureA3.pdf" in out and "figure7.pdf" in out and "figureA4.pdf" in out
+    assert "TableTheta.tex" in out
 
-    # all three mismatches converge on the same upstream suspect
+    # the fan-out mismatches point at the shared restated input, and the
+    # chain mismatch points at the coauthor's re-exported weights
     assert "data/raw/FRA_base.dta" in out
-    assert out.count("data/raw/FRA_base.dta") >= 1
+    assert "data/decade_weights.csv" in out

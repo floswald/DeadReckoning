@@ -306,22 +306,40 @@ realistic ask for most social scientists. This check and its mtime
 fallback exist for the world as it actually is: no git, no CI, just a
 shared Dropbox folder.
 
-## 5. Fan-out fidelity — `demo/run_demo_landuse_fanout.py`
+## 5. Fan-out fidelity + chain drift — `demo/run_demo_landuse_fanout.py`
 
-Same silent-drift mechanism as segment 4, but at scale: one real shared
-data input, two real Stata scripts, six real exhibits — and only three
-of the six are actually stale. Extends `demo/landuse_real/` (untouched
-by this demo) with a second script, `code/stata/generatethetas.do`,
-which reads the same `data/raw/FRA_base.dta` as `code/stata/figure1.do`.
+Both silent-drift shapes from the deck, live, in one run: segment 4's
+chain (a downstream consumer that never reran), plus a parallel fan-out
+at scale — one real shared data input, two real Stata scripts, six real
+exhibits. Extends `demo/landuse_real/` (untouched by this demo) with a
+second script, `code/stata/generatethetas.do`, which reads the same
+`data/raw/FRA_base.dta` as `code/stata/figure1.do`, plus a third,
+synthetic script, `code/julia/combine_theta_summary.jl` — fabricated for
+this demo, not part of the real published package (see
+`demo/landuse_fanout/README.md`) — which reads `generatethetas.do`'s
+output and a coauthor-supplied decade weighting scheme to produce a
+seventh exhibit, `TableTheta.tex`.
 
-The rig: a provider restatement of two 1950 observations in
-`FRA_base.dta`. `generatethetas.do` was rerun after the restatement, so
-its three reference exhibits (`figureA3.pdf`, `figure7.pdf`,
-`figureA4.pdf`) already reflect the current data. `figure1.do` was
-believed unaffected and never rerun, so its three reference exhibits
-(`figure1.pdf`, `figureA2a.pdf`, `figureA2b.pdf`) still reflect the
-pre-restatement data. Every script still exits 0, every exhibit still
-lands on disk — nothing crashes.
+Two independent rigs:
+
+1. **Fan-out** (baked into `reference/` ahead of time): a provider
+   restatement of two 1950 observations in `FRA_base.dta`.
+   `generatethetas.do` was rerun after the restatement, so its three
+   reference exhibits (`figureA3.pdf`, `figure7.pdf`, `figureA4.pdf`)
+   already reflect the current data. `figure1.do` was believed
+   unaffected and never rerun, so its three reference exhibits
+   (`figure1.pdf`, `figureA2a.pdf`, `figureA2b.pdf`) still reflect the
+   pre-restatement data.
+2. **Chain** (performed live by the demo script, like segment 4): a
+   coauthor's private export script modernizes `outsheet` ->
+   `export delimited` with no display format set, silently leaking full
+   double-precision decade weights into `data/decade_weights.csv`.
+   `combine_theta_summary.jl`, the downstream consumer, is never rerun
+   before the swap, so `TableTheta.tex` is stale too — for a completely
+   different reason than the other three mismatches.
+
+Every script still exits 0, every exhibit still lands on disk — nothing
+crashes.
 
 ```bash
 python3 demo/run_demo_landuse_fanout.py           # full step-by-step narration
@@ -329,18 +347,23 @@ python3 demo/run_demo_landuse_fanout.py --terse   # one line per step
 ```
 
 Shows: DETECT, SCAN, RESOLVE, ASK, FIX, RUN, and VALIDATE all pass
-clean on all six exhibits. **FIDELITY** is the only check that tells the
-three `figure1.do` exhibits apart from the three `generatethetas.do`
-exhibits, and it converges all three mismatches on the same suspect,
-`data/raw/FRA_base.dta`, without ever flagging the three that are
-actually fine. See `demo/landuse_fanout/README.md` for exactly how the
-reference set was built and verified.
+clean on all seven exhibits. **FIDELITY** is the only check that tells
+them apart, and names two different suspects for two different reasons
+in the same run: `figure1.do`'s three exhibits implicate only
+`data/raw/FRA_base.dta`; `TableTheta.tex` implicates both
+`data/raw/FRA_base.dta` (a real but incidental upstream link —
+`combine_theta_summary.jl`'s input is itself produced by
+`generatethetas.do`) and `data/decade_weights.csv` (the actual cause) —
+without ever flagging the three `generatethetas.do` exhibits that are
+actually fine. See `demo/landuse_fanout/README.md` for exactly how both
+rigs were built and verified.
 
 No LLM fix-loop act in this demo either — same as segment 4, there's
 nothing to fix automatically, only a divergence to surface and a
 suspect to name. No Docker, no `ANTHROPIC_API_KEY` needed.
 
-Needs a local Stata install for the native RUN step, same as segment 3.
+Needs a local Stata install for the native RUN step, same as segment 3,
+plus a local Julia install with CSV.jl/DataFrames.jl.
 
 ## 6. Rcpp mixed-language package — `run_demo_rcpp_rng.py`
 
