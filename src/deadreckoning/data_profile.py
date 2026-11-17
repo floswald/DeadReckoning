@@ -22,15 +22,15 @@ _UNSUPPORTED_NOTE = (
 )
 
 
-def _profile_csv(path: Path, delimiter: str) -> DataFileProfile:
-    with path.open(newline="") as f:
+def _profile_csv(display_path: Path, actual_path: Path, delimiter: str) -> DataFileProfile:
+    with actual_path.open(newline="") as f:
         reader = csv.reader(f, delimiter=delimiter)
         try:
             header = next(reader)
         except StopIteration:
-            return DataFileProfile(path=path, exists_on_disk=True, row_count=0, columns=[])
+            return DataFileProfile(path=display_path, exists_on_disk=True, row_count=0, columns=[])
         row_count = sum(1 for _ in reader)
-    return DataFileProfile(path=path, exists_on_disk=True, row_count=row_count, columns=header)
+    return DataFileProfile(path=display_path, exists_on_disk=True, row_count=row_count, columns=header)
 
 
 def profile_data_files(working_copy: Path, graph: DependencyGraph) -> DataProfileResult:
@@ -46,9 +46,9 @@ def profile_data_files(working_copy: Path, graph: DependencyGraph) -> DataProfil
 
         suffix = actual_path.suffix.lower()
         if suffix == ".csv":
-            profiles.append(_profile_csv(actual_path, delimiter=","))
+            profiles.append(_profile_csv(df.path, actual_path, delimiter=","))
         elif suffix == ".tsv":
-            profiles.append(_profile_csv(actual_path, delimiter="\t"))
+            profiles.append(_profile_csv(df.path, actual_path, delimiter="\t"))
         else:
             profiles.append(DataFileProfile(path=df.path, exists_on_disk=True, note=_UNSUPPORTED_NOTE))
 
