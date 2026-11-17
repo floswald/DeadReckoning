@@ -123,6 +123,11 @@ def main(terse: bool = False) -> None:
     print("    2. src/shocks.cpp has no src/Makevars -- compile flags are unrecorded")
     print("    3. src/shocks.cpp draws from R's RNG with no set.seed() anywhere upstream")
 
+    paper_pdf = PROJECT / "paper.pdf"
+    print(f"\n  Already-published paper (compiled ahead of time, output/ seeded from")
+    print(f"  reference/ — this is what the audience has in hand before any of this")
+    print(f"  runs): {paper_pdf}")
+
     banner("Full pipeline run, step by step")
 
     # DETECT
@@ -140,8 +145,9 @@ def main(terse: bool = False) -> None:
     print(f"  working copy: {working_copy}  (original project untouched)")
 
     # The published reference — a baked-in snapshot of Table 1 as it
-    # appeared when the paper was accepted (unlike the other demos, this
-    # package's own output/ starts empty: nothing has run yet).
+    # appeared when the paper was accepted. output/Table1.tex is seeded
+    # from this same content so paper.tex compiles before any run; the
+    # native RUN step below overwrites it with a freshly simulated draw.
     reference_content = (working_copy / "reference" / "Table1.tex").read_bytes()
 
     # GRAPH

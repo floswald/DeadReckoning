@@ -131,6 +131,11 @@ def main(terse: bool = False) -> None:
     print("  combine_theta_summary.jl never got rerun to pick up. Every script")
     print("  still exits 0, every exhibit still lands on disk, nothing crashes.")
 
+    paper_pdf = PROJECT / "paper.pdf"
+    print(f"\n  Already-published paper (compiled ahead of time, output/ seeded from")
+    print(f"  reference/ — this is what the audience has in hand before any of this")
+    print(f"  runs): {paper_pdf}")
+
     banner("Full pipeline run, step by step")
 
     # DETECT

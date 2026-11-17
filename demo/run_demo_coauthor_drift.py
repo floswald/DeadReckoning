@@ -131,6 +131,11 @@ def main(terse: bool = False) -> None:
     print("  before the re-export — already out of sync with the csv on disk by the")
     print("  time the paper is accepted. Nobody notices because nothing crashes.")
 
+    paper_pdf = PROJECT / "paper.pdf"
+    print(f"\n  Already-published paper (compiled ahead of time, carries the v1")
+    print(f"  numbers — this is what the audience has in hand before any of")
+    print(f"  this runs): {paper_pdf}")
+
     banner("Full pipeline run, step by step")
 
     # DETECT

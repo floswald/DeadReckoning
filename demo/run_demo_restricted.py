@@ -7,10 +7,13 @@ Usage:
     python3 demo/run_demo_restricted.py
     python3 demo/run_demo_restricted.py --terse   # one line per step
 
-A tiny, fully made-up household-income survey:
-`code/analysis.py` reads `data/survey_confidential.csv` and writes the
-paper's one table. The filename alone ("confidential") trips DETECT's
-filename heuristic — no file is opened to make that call.
+A tiny, fully made-up household-income survey: `output/table1.tex` and
+`paper.pdf` are checked in ahead of time with the correct numbers —
+"already published," so the audience can see the real compiled paper
+before any of this runs. `code/analysis.py` reads
+`data/survey_confidential.csv` and reproduces that same table. The
+filename alone ("confidential") trips DETECT's filename heuristic — no
+file is opened to make that call.
 
 Before #27, that would have aborted the whole pipeline: no working
 copy, nothing downstream. Now it keeps going — GRAPH, CAPTURE, SCAN,
@@ -102,6 +105,12 @@ def main(terse: bool = False) -> None:
     print("  code/analysis.py reads data/survey_confidential.csv and writes output/table1.tex")
     print("  Bug: the script reads column 'household_income'; the CSV's real column is 'income'")
     print("  All data below is fabricated for this demo — no real survey respondents involved.")
+
+    paper_pdf = PROJECT / "paper.pdf"
+    print(f"\n  Already-published paper (compiled ahead of time, correct numbers — this")
+    print(f"  is what the audience has in hand before any of this runs): {paper_pdf}")
+    print("  Something changed since: the real column got renamed. Reproducing from")
+    print("  scratch is what surfaces that — see below.")
 
     banner("Full pipeline run, step by step")
 
